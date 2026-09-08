@@ -28,20 +28,32 @@ export async function POST(request: Request) {
   if (!cloudName || !apiKey || !apiSecret) return Response.json({ error: "Chưa cấu hình Cloudinary trên server." }, { status: 503 });
 
   try {
-    const body = await request.json() as { imageUrl?: string };
-    const imageUrl = String(body.imageUrl || "").trim();
-    const sourceUrl = normalizeImageUrl(imageUrl);
-    const parsedUrl = new URL(sourceUrl);
-    if (!/^https?:$/.test(parsedUrl.protocol)) throw new Error("Link ảnh phải bắt đầu bằng http:// hoặc https://");
-
-    const sourceResponse = await fetch(parsedUrl, { redirect: "follow" });
-    if (!sourceResponse.ok) throw new Error(`Không tải được ảnh từ link này (${sourceResponse.status}).`);
-    const contentType = sourceResponse.headers.get("content-type") || "";
-    const contentLength = Number(sourceResponse.headers.get("content-length") || 0);
-    if (!contentType.startsWith("image/")) throw new Error("Link không trỏ tới file hình ảnh.");
-    if (contentLength > MAX_IMAGE_BYTES) throw new Error("Ảnh vượt quá giới hạn 10MB.");
-    const imageBuffer = Buffer.from(await sourceResponse.arrayBuffer());
-    if (imageBuffer.byteLength > MAX_IMAGE_BYTES) throw new Error("Ảnh vượt quá giới hạn 10MB.");
+    const requestType = request.headers.get("content-type") || "";
+    let imageBuffer: Buffer;
+    let contentType: string;
+    if (requestType.includes("multipart/form-data")) {
+      const form = await request.formData();
+      const file = form.get("file");
+      if (!(file instanceof File)) throw new Error("Không nhận được file ảnh từ clipboard.");
+      if (!file.type.startsWith("image/")) throw new Error("File dán vào không phải hình ảnh.");
+      if (file.size > MAX_IMAGE_BYTES) throw new Error("Ảnh vượt quá giới hạn 10MB.");
+      imageBuffer = Buffer.from(await file.arrayBuffer());
+      contentType = file.type;
+    } else {
+      const body = await request.json() as { imageUrl?: string };
+      const imageUrl = String(body.imageUrl || "").trim();
+      const sourceUrl = normalizeImageUrl(imageUrl);
+      const parsedUrl = new URL(sourceUrl);
+      if (!/^https?:$/.test(parsedUrl.protocol)) throw new Error("Link ảnh phải bắt đầu bằng http:// hoặc https://");
+      const sourceResponse = await fetch(parsedUrl, { redirect: "follow" });
+      if (!sourceResponse.ok) throw new Error(`Không tải được ảnh từ link này (${sourceResponse.status}).`);
+      contentType = sourceResponse.headers.get("content-type") || "";
+      const contentLength = Number(sourceResponse.headers.get("content-length") || 0);
+      if (!contentType.startsWith("image/")) throw new Error("Link không trỏ tới file hình ảnh.");
+      if (contentLength > MAX_IMAGE_BYTES) throw new Error("Ảnh vượt quá giới hạn 10MB.");
+      imageBuffer = Buffer.from(await sourceResponse.arrayBuffer());
+      if (imageBuffer.byteLength > MAX_IMAGE_BYTES) throw new Error("Ảnh vượt quá giới hạn 10MB.");
+    }
 
     const timestamp = String(Math.floor(Date.now() / 1000));
     const signatureParams = { folder, timestamp };

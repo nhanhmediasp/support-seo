@@ -531,6 +531,48 @@ function EditorModal({ title, module, row, personnel, defaultOwner, onSave, onCl
   const [draft, setDraft] = useState<Row>(() => ({ ...row, ...(fields[module].some(field => field.key === "owner") && !row.owner && defaultOwner ? { owner: defaultOwner } : {}), ...(module === "worklogs" && !row.date ? { date: today() } : {}) }));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const uploadPastedImage = async (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const imageFile = Array.from(event.clipboardData.files).find(file => file.type.startsWith("image/"));
+    if (!imageFile) return;
+    event.preventDefault();
+    setSaving(true); setError("");
+    try {
+      const formData = new FormData();
+      formData.append("file", imageFile, imageFile.name || "pasted-image.png");
+      const response = await fetch("/api/cloudinary/upload-from-url", { method: "POST", body: formData });
+      const result = await response.json() as { url?: string; error?: string };
+      if (!response.ok || !result.url) throw new Error(result.error || "Upload ảnh thất bại.");
+      setDraft(current => ({ ...current, imageUrl: [String(current.imageUrl || "").trim(), result.url].filter(Boolean).join("\n") }));
+    } catch (pasteError) {
+      setError(pasteError instanceof Error ? pasteError.message : "Không thể upload ảnh dán vào.");
+    } finally { setSaving(false); }
+  };
+  const uploadPastedImageFile = async (imageFile: File) => {
+    setSaving(true); setError("");
+    try {
+      const formData = new FormData();
+      formData.append("file", imageFile, imageFile.name || "pasted-image.png");
+      const response = await fetch("/api/cloudinary/upload-from-url", { method: "POST", body: formData });
+      const result = await response.json() as { url?: string; error?: string };
+      if (!response.ok || !result.url) throw new Error(result.error || "Upload ảnh thất bại.");
+      setDraft(current => ({ ...current, imageUrl: [String(current.imageUrl || "").trim(), result.url].filter(Boolean).join("\n") }));
+    } catch (pasteError) {
+      setError(pasteError instanceof Error ? pasteError.message : "Không thể upload ảnh dán vào.");
+    } finally { setSaving(false); }
+  };
+  useEffect(() => {
+    if (module !== "worklogs") return;
+    const handlePaste = (event: ClipboardEvent) => {
+      const target = event.target;
+      if (!(target instanceof HTMLTextAreaElement) || !target.placeholder.includes("Google Drive")) return;
+      const imageFile = Array.from(event.clipboardData?.files || []).find(file => file.type.startsWith("image/"));
+      if (!imageFile) return;
+      event.preventDefault();
+      void uploadPastedImageFile(imageFile);
+    };
+    window.addEventListener("paste", handlePaste);
+    return () => window.removeEventListener("paste", handlePaste);
+  }, [module]);
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     setSaving(true); setError("");
