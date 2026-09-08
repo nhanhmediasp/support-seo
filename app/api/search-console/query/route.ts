@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
   if (process.env.NEXT_PUBLIC_ALLOW_LOCAL_MODE !== "true") {
     const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
     if (!token || !url || !anonKey) return NextResponse.json({ error: "Chưa đăng nhập" }, { status: 401 });
     const authClient = createClient(url, anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
     const { error: authError } = await authClient.auth.getUser(token);
