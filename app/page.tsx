@@ -93,7 +93,7 @@ const fields: Record<ModuleKey, Field[]> = {
   ],
   calendar: [{ key: "date", label: "Ngày đăng", type: "date", required: true }, { key: "title", label: "Tên bài", required: true }, { key: "keyword", label: "Keyword" }, { key: "url", label: "URL" }, { key: "channel", label: "Kênh", type: "select", options: ["Website", "Website + Social", "Facebook", "LinkedIn", "Google Business"] }, { key: "status", label: "Trạng thái", type: "select", options: ["Planned", "Review", "Scheduled", "Published"] }, { key: "owner", label: "Người phụ trách" }, { key: "approved", label: "Ngày duyệt", type: "date" }, { key: "campaign", label: "Chiến dịch/Ghi chú" }],
   onpage: [{ key: "url", label: "URL", required: true }, { key: "owner", label: "Người phụ trách" }, { key: "checked", label: "Ngày kiểm tra", type: "date" }, ...["https", "canonical", "indexable", "title", "meta", "h1", "headings", "intent", "internal", "external", "alt", "schema", "mobile"].map(key => ({ key, label: key.toUpperCase(), type: "checkbox" as const })), { key: "missing", label: "Việc còn thiếu", type: "textarea" }],
-  audits: [{ key: "url", label: "URL/Khu vực", required: true }, { key: "category", label: "Nhóm lỗi", type: "select", options: ["404", "5xx", "Redirect", "Canonical", "Noindex", "Sitemap", "Duplicate", "Thin content", "Orphan page", "Page speed", "Mobile", "Schema", "Image"] }, { key: "issue", label: "Mô tả lỗi", required: true }, { key: "severity", label: "Mức độ", type: "select", options: ["Low", "Medium", "High", "Critical"] }, { key: "affected", label: "Số URL ảnh hưởng", type: "number" }, { key: "value", label: "Giá trị URL (1-10)", type: "number" }, { key: "resolution", label: "Cách xử lý", type: "textarea" }, { key: "owner", label: "Người xử lý" }, { key: "due", label: "Deadline", type: "date" }, { key: "status", label: "Trạng thái", type: "select", options: ["Open", "In progress", "Done", "Ignored"] }, { key: "found", label: "Ngày phát hiện", type: "date" }, { key: "completed", label: "Ngày hoàn tất", type: "date" }, { key: "evidence", label: "Link bằng chứng" }],
+  audits: [{ key: "url", label: "URL/Khu vực", required: true }, { key: "category", label: "Nhóm lỗi", type: "select", options: ["404", "5xx", "Redirect", "Canonical", "Noindex", "Sitemap", "Duplicate", "Thin content", "Orphan page", "Page speed", "Mobile", "Schema", "Image", "Mã độc"] }, { key: "issue", label: "Mô tả lỗi", required: true }, { key: "severity", label: "Mức độ", type: "select", options: ["Low", "Medium", "High", "Critical"] }, { key: "affected", label: "Số URL ảnh hưởng", type: "number" }, { key: "value", label: "Giá trị URL (1-10)", type: "number" }, { key: "resolution", label: "Cách xử lý", type: "textarea" }, { key: "owner", label: "Người xử lý" }, { key: "due", label: "Deadline", type: "date" }, { key: "status", label: "Trạng thái", type: "select", options: ["Open", "In progress", "Done", "Ignored"] }, { key: "found", label: "Ngày phát hiện", type: "date" }, { key: "completed", label: "Ngày hoàn tất", type: "date" }, { key: "beforeImages", label: "Ảnh trước xử lý", type: "textarea" }, { key: "afterImages", label: "Ảnh sau xử lý", type: "textarea" }, { key: "evidence", label: "Link bằng chứng bổ sung" }],
   indexing: [{ key: "url", label: "URL", required: true }, { key: "owner", label: "Người phụ trách" }, { key: "type", label: "Loại URL", type: "select", options: ["Article", "Landing page", "Entity", "Backlink", "Service"] }, { key: "created", label: "Ngày tạo", type: "date" }, { key: "submitted", label: "Ngày submit", type: "date" }, { key: "checked", label: "Kiểm tra gần nhất", type: "date" }, { key: "status", label: "Trạng thái", type: "select", options: ["Indexed", "Not indexed", "Crawled - not indexed", "Discovered - not indexed", "Error", "Unknown"] }, { key: "reason", label: "Lý do" }, { key: "action", label: "Hành động tiếp theo" }, { key: "next", label: "Ngày kiểm tra lại", type: "date" }, { key: "priority", label: "Ưu tiên", type: "select", options: ["Low", "Medium", "High"] }],
   backlinks: [{ key: "domain", label: "Domain", required: true }, { key: "owner", label: "Người phụ trách" }, { key: "sourceUrl", label: "URL đặt link" }, { key: "targetUrl", label: "URL đích" }, { key: "anchor", label: "Anchor text" }, { key: "linkType", label: "Loại link", type: "select", options: ["Dofollow", "Nofollow", "Sponsored", "UGC"] }, { key: "topic", label: "Chủ đề website" }, { key: "authority", label: "Authority", type: "number" }, { key: "relevance", label: "Liên quan (0-25)", type: "number" }, { key: "trust", label: "Tin cậy (0-20)", type: "number" }, { key: "placement", label: "Vị trí (0-15)", type: "number" }, { key: "natural", label: "Anchor tự nhiên (0-15)", type: "number" }, { key: "traffic", label: "Traffic (0-15)", type: "number" }, { key: "stability", label: "Ổn định (0-10)", type: "number" }, { key: "status", label: "Trạng thái", type: "select", options: ["Prospect", "Contacted", "Accepted", "Live", "Lost", "Pending check", "Risk"] }, { key: "placed", label: "Ngày đặt", type: "date" }, { key: "checked", label: "Ngày kiểm tra", type: "date" }],
   entities: [{ key: "name", label: "Entity name", required: true }, { key: "owner", label: "Người phụ trách" }, { key: "type", label: "Loại", type: "select", options: ["Google Business Profile", "Social profile", "Directory", "Partner", "PR", "Expert profile", "Local citation"] }, { key: "platform", label: "Nền tảng" }, { key: "url", label: "URL" }, { key: "account", label: "Email/Tài khoản" }, { key: "nap", label: "NAP consistency", type: "select", options: ["Consistent", "Needs review", "Incorrect"] }, { key: "website", label: "Website" }, { key: "verified", label: "Xác minh", type: "select", options: ["Draft", "Pending", "Complete", "Verified"] }, { key: "indexed", label: "Index", type: "select", options: ["Indexed", "Not indexed", "Unknown"] }, { key: "updated", label: "Ngày cập nhật", type: "date" }, { key: "notes", label: "Ghi chú", type: "textarea" }],
@@ -109,7 +109,7 @@ const moduleMeta: Record<ModuleKey, { title: string; eyebrow: string; descriptio
   content: { title: "Kế hoạch nội dung", eyebrow: "CONTENT OPERATIONS", description: "Quản lý keyword, topic cluster, tiến độ và điểm cơ hội.", columns: ["topic", "keyword", "intent", "cluster", "publishDate", "score", "owner", "status"], prefix: "CONTENT" },
   calendar: { title: "Lịch đăng bài", eyebrow: "PUBLISHING CALENDAR", description: "Theo dõi lịch xuất bản, duyệt bài và phân phối nội dung.", columns: ["date", "title", "keyword", "channel", "owner", "status"], prefix: "CAL" },
   onpage: { title: "On-page Checklist", eyebrow: "URL QUALITY CONTROL", description: "Chấm điểm từng URL và phát hiện hạng mục còn thiếu.", columns: ["url", "owner", "checked", "title", "meta", "h1", "internal", "alt", "schema", "score"], prefix: "ONPAGE" },
-  audits: { title: "Technical SEO Audit", eyebrow: "TECHNICAL SEO", description: "Theo dõi lỗi, mức ảnh hưởng và tiến độ khắc phục.", columns: ["url", "owner", "category", "issue", "severity", "impact", "due", "status"], prefix: "AUDIT" },
+  audits: { title: "Technical SEO Audit", eyebrow: "TECHNICAL SEO", description: "Theo dõi lỗi, mức ảnh hưởng, ảnh trước/sau và tiến độ khắc phục.", columns: ["url", "owner", "category", "issue", "severity", "beforeImages", "afterImages", "due", "status"], prefix: "AUDIT" },
   indexing: { title: "Index Tracking", eyebrow: "INDEXATION", description: "Quản lý submit, trạng thái index và lịch kiểm tra 3/7/14 ngày.", columns: ["url", "owner", "type", "submitted", "status", "reason", "next", "priority"], prefix: "INDEX" },
   backlinks: { title: "Backlinks", eyebrow: "OFF-PAGE SEO", description: "Quản lý nguồn link, anchor, chất lượng và trạng thái.", columns: ["domain", "owner", "targetUrl", "anchor", "linkType", "authority", "score", "status"], prefix: "BL" },
   entities: { title: "Entity SEO", eyebrow: "BRAND ENTITY", description: "Theo dõi hồ sơ thương hiệu, NAP, xác minh và index.", columns: ["name", "owner", "type", "platform", "nap", "verified", "indexed", "updated"], prefix: "ENTITY" },
@@ -135,6 +135,9 @@ const moduleDateKeys: Record<ModuleKey, string[]> = {
   changes: ["date"],
   personnel: ["updated"],
 };
+
+const imageAttachmentFields = new Set(["imageUrl", "beforeImages", "afterImages"]);
+const imageLinks = (value: unknown) => String(value || "").split(/\r?\n/).map(link => link.trim()).filter(link => link.startsWith("http"));
 
 const normalizeFilterDate = (value: unknown) => {
   const raw = String(value || "").trim();
@@ -466,7 +469,7 @@ function ModuleView({ module, rows, setRows, onChange, siteUrl, personnel }: { m
   const [editing, setEditing] = useState<Row | null>(null);
   const [viewing, setViewing] = useState<Row | null>(null);
   const [deleting, setDeleting] = useState<Row | null>(null);
-  const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
+  const [gallery, setGallery] = useState<{ images: string[]; index: number; title: string } | null>(null);
   const [open, setOpen] = useState(false);
   const [gscStatus, setGscStatus] = useState("");
   const [rankBand, setRankBand] = useState("All");
@@ -508,20 +511,24 @@ function ModuleView({ module, rows, setRows, onChange, siteUrl, personnel }: { m
   const visibleRows = module === "rankings" ? filtered.slice((rankPage - 1) * rankPageSize, rankPage * rankPageSize) : filtered;
   useEffect(() => { setDatePreset("all"); setDateFrom(""); setDateTo(""); }, [module]);
   useEffect(() => {
-    if (module !== "worklogs") return;
+    const imageLabels = fields[module].filter(field => imageAttachmentFields.has(field.key)).map(field => field.label);
+    if (!imageLabels.length) return;
     const timer = window.setTimeout(() => {
       document.querySelectorAll(".panel.full table").forEach(table => {
-        const imageColumn = Array.from(table.querySelectorAll("thead th")).findIndex(header => (header.textContent || "").toLowerCase().includes("ảnh đính kèm"));
-        if (imageColumn < 0) return;
-        table.querySelectorAll("tbody tr").forEach(row => {
-          const cell = row.children[imageColumn];
-          if (!cell || cell.querySelector("img")) return;
-          const links = (cell.textContent || "").split(/\r?\n/).map(value => value.trim()).filter(value => value.startsWith("http"));
-          if (!links.length) return;
-          cell.textContent = "";
-          const wrapper = document.createElement("div"); wrapper.className = "attachment-previews";
-          links.forEach((link, index) => { const anchor = document.createElement("a"); anchor.href = link; anchor.title = "Xem album ảnh"; anchor.addEventListener("click", event => { event.preventDefault(); setGallery({ images: links, index }); }); const image = document.createElement("img"); image.src = link; image.alt = `Ảnh đính kèm ${index + 1}`; image.loading = "lazy"; anchor.appendChild(image); wrapper.appendChild(anchor); });
-          cell.appendChild(wrapper);
+        const headers = Array.from(table.querySelectorAll("thead th"));
+        imageLabels.forEach(label => {
+          const imageColumn = headers.findIndex(header => (header.textContent || "").trim() === label);
+          if (imageColumn < 0) return;
+          table.querySelectorAll("tbody tr").forEach(row => {
+            const cell = row.children[imageColumn];
+            if (!cell || cell.querySelector("img")) return;
+            const links = imageLinks(cell.textContent);
+            if (!links.length) return;
+            cell.textContent = "";
+            const wrapper = document.createElement("div"); wrapper.className = "attachment-previews";
+            links.forEach((link, index) => { const anchor = document.createElement("a"); anchor.href = link; anchor.title = `Xem ${label.toLowerCase()}`; anchor.addEventListener("click", event => { event.preventDefault(); setGallery({ images: links, index, title: label }); }); const image = document.createElement("img"); image.src = link; image.alt = `${label} ${index + 1}`; image.loading = "lazy"; anchor.appendChild(image); wrapper.appendChild(anchor); });
+            cell.appendChild(wrapper);
+          });
         });
       });
     }, 0);
@@ -594,8 +601,8 @@ function ModuleView({ module, rows, setRows, onChange, siteUrl, personnel }: { m
     <div className="panel full"><SimpleTable rows={visibleRows} columns={meta.columns} showIndex={module === "rankings"} indexOffset={module === "rankings" ? (rankPage - 1) * rankPageSize : 0} actions={row => <><button className="table-action" onClick={() => setViewing(row)}>Xem</button><button className="table-action" onClick={() => { setEditing(row); setOpen(true); }}>Sửa</button><button className="table-action delete" onClick={() => remove(row)}>Xóa</button></>} /></div>
     {module === "rankings" && <div className="pagination"><span>Hiển thị {filtered.length ? (rankPage - 1) * rankPageSize + 1 : 0}–{Math.min(rankPage * rankPageSize, filtered.length)} / {filtered.length} keyword</span><div><button className="secondary" disabled={rankPage <= 1} onClick={() => setRankPage(page => Math.max(1, page - 1))}>← Trước</button><b>Trang {rankPage} / {rankTotalPages}</b><button className="secondary" disabled={rankPage >= rankTotalPages} onClick={() => setRankPage(page => Math.min(rankTotalPages, page + 1))}>Sau →</button></div></div>}
     {open && <EditorModal title={`${editing ? "Sửa" : "Thêm"} ${meta.title}`} module={module} row={editing || { id: uid(meta.prefix) }} personnel={personnel} defaultOwner={personnel.find(person => String(person.status || "Active") !== "Inactive")?.name?.toString() || ""} onSave={save} onClose={() => { setOpen(false); setEditing(null); }} />}
-    {viewing && <DetailModal title={`Thông tin ${meta.title}`} module={module} row={viewing} onOpenGallery={(images, index) => setGallery({ images, index })} onClose={() => setViewing(null)} />}
-    {gallery && <GalleryModal images={gallery.images} initialIndex={gallery.index} onClose={() => setGallery(null)} />}
+    {viewing && <DetailModal title={`Thông tin ${meta.title}`} module={module} row={viewing} onOpenGallery={(images, index, title) => setGallery({ images, index, title })} onClose={() => setViewing(null)} />}
+    {gallery && <GalleryModal title={gallery.title} images={gallery.images} initialIndex={gallery.index} onClose={() => setGallery(null)} />}
     {deleting && <ConfirmDialog eyebrow="XÁC NHẬN XÓA" title="Xóa bản ghi này?" description={`Bản ghi ${deleting.id} sẽ bị xóa khỏi ${meta.title}. Hành động này không thể hoàn tác.`} confirmLabel="Xóa bản ghi" danger onConfirm={confirmRemove} onClose={() => setDeleting(null)} />}
   </>;
 }
@@ -616,10 +623,7 @@ function EditorModal({ title, module, row, personnel, defaultOwner, onSave, onCl
   const [draft, setDraft] = useState<Row>(() => ({ ...row, ...(fields[module].some(field => field.key === "owner") && !row.owner && defaultOwner ? { owner: defaultOwner } : {}), ...(module === "tasks" && !row.startDate ? { startDate: today() } : {}), ...(module === "worklogs" && !row.date ? { date: today() } : {}), ...(module === "onpage" && !row.checked ? { checked: today() } : {}), ...(module === "personnel" && !row.updated ? { updated: today() } : {}) }));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const uploadPastedImage = async (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    const imageFile = Array.from(event.clipboardData.files).find(file => file.type.startsWith("image/"));
-    if (!imageFile) return;
-    event.preventDefault();
+  const uploadPastedImageFile = async (imageFile: File, fieldKey: string) => {
     setSaving(true); setError("");
     try {
       const formData = new FormData();
@@ -627,33 +631,22 @@ function EditorModal({ title, module, row, personnel, defaultOwner, onSave, onCl
       const response = await fetch("/api/cloudinary/upload-from-url", { method: "POST", body: formData });
       const result = await response.json() as { url?: string; error?: string };
       if (!response.ok || !result.url) throw new Error(result.error || "Upload ảnh thất bại.");
-      setDraft(current => ({ ...current, imageUrl: [String(current.imageUrl || "").trim(), result.url].filter(Boolean).join("\n") }));
-    } catch (pasteError) {
-      setError(pasteError instanceof Error ? pasteError.message : "Không thể upload ảnh dán vào.");
-    } finally { setSaving(false); }
-  };
-  const uploadPastedImageFile = async (imageFile: File) => {
-    setSaving(true); setError("");
-    try {
-      const formData = new FormData();
-      formData.append("file", imageFile, imageFile.name || "pasted-image.png");
-      const response = await fetch("/api/cloudinary/upload-from-url", { method: "POST", body: formData });
-      const result = await response.json() as { url?: string; error?: string };
-      if (!response.ok || !result.url) throw new Error(result.error || "Upload ảnh thất bại.");
-      setDraft(current => ({ ...current, imageUrl: [String(current.imageUrl || "").trim(), result.url].filter(Boolean).join("\n") }));
+      setDraft(current => ({ ...current, [fieldKey]: [String(current[fieldKey] || "").trim(), result.url].filter(Boolean).join("\n") }));
     } catch (pasteError) {
       setError(pasteError instanceof Error ? pasteError.message : "Không thể upload ảnh dán vào.");
     } finally { setSaving(false); }
   };
   useEffect(() => {
-    if (module !== "worklogs") return;
+    if (!fields[module].some(field => imageAttachmentFields.has(field.key))) return;
     const handlePaste = (event: ClipboardEvent) => {
       const target = event.target;
-      if (!(target instanceof HTMLTextAreaElement) || !target.placeholder.includes("Google Drive")) return;
+      if (!(target instanceof HTMLTextAreaElement)) return;
+      const fieldKey = target.dataset.imageField;
+      if (!fieldKey || !imageAttachmentFields.has(fieldKey)) return;
       const imageFile = Array.from(event.clipboardData?.files || []).find(file => file.type.startsWith("image/"));
       if (!imageFile) return;
       event.preventDefault();
-      void uploadPastedImageFile(imageFile);
+      void uploadPastedImageFile(imageFile, fieldKey);
     };
     window.addEventListener("paste", handlePaste);
     return () => window.removeEventListener("paste", handlePaste);
@@ -663,47 +656,49 @@ function EditorModal({ title, module, row, personnel, defaultOwner, onSave, onCl
     setSaving(true); setError("");
     try {
       let nextDraft = { ...draft };
-      if (module === "worklogs" && String(draft.imageUrl || "").trim()) {
-        const imageLinks = String(draft.imageUrl).split(/\r?\n/).map(link => link.trim()).filter(Boolean);
+      for (const field of fields[module].filter(item => imageAttachmentFields.has(item.key))) {
+        if (!String(draft[field.key] || "").trim()) continue;
+        const links = String(draft[field.key]).split(/\r?\n/).map(link => link.trim()).filter(Boolean);
         const uploadedLinks: string[] = [];
-        for (const imageUrl of imageLinks) {
+        for (const imageUrl of links) {
           if (imageUrl.includes("res.cloudinary.com/")) { uploadedLinks.push(imageUrl); continue; }
           const response = await fetch("/api/cloudinary/upload-from-url", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ imageUrl }) });
           const result = await response.json() as { url?: string; error?: string };
           if (!response.ok || !result.url) throw new Error(result.error || "Upload ảnh thất bại.");
           uploadedLinks.push(result.url);
         }
-        nextDraft = { ...nextDraft, imageUrl: uploadedLinks.join("\n") };
+        nextDraft = { ...nextDraft, [field.key]: uploadedLinks.join("\n") };
       }
       await onSave(nextDraft);
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Không thể lưu bản ghi.");
     } finally { setSaving(false); }
   };
-  return <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !saving) onClose(); }}><form className="modal" onSubmit={submit}><div className="modal-head"><div><p className="eyebrow">DATA EDITOR</p><h2>{title}</h2></div><button type="button" disabled={saving} onClick={onClose}>×</button></div><div className="form-grid">{fields[module].map(field => <label key={field.key} className={field.type === "textarea" ? "wide" : ""}>{field.type === "checkbox" ? <span className="checkbox-label"><input type="checkbox" checked={Boolean(draft[field.key])} onChange={event => setDraft({ ...draft, [field.key]: event.target.checked })} /> {field.label}</span> : <><span>{field.label}{field.required && " *"}</span>{field.key === "owner" ? <select value={String(draft[field.key] ?? "")} onChange={event => setDraft({ ...draft, [field.key]: event.target.value })}><option value="">Chưa gán</option>{personnel.filter(person => String(person.status || "Active") !== "Inactive").map(person => <option key={person.id} value={String(person.name)}>{String(person.name)}{person.role ? ` — ${person.role}` : ""}</option>)}</select> : field.type === "select" ? <select required={field.required} value={String(draft[field.key] ?? field.options?.[0] ?? "")} onChange={event => setDraft({ ...draft, [field.key]: event.target.value })}>{field.options?.map(option => <option key={option}>{option}</option>)}</select> : field.type === "textarea" ? <textarea required={field.required} placeholder={field.key === "imageUrl" ? "Dán link ảnh Google Drive, Cloudinary... mỗi dòng một link" : undefined} value={String(draft[field.key] ?? "")} onChange={event => setDraft({ ...draft, [field.key]: event.target.value })} /> : <input required={field.required} type={field.type || "text"} step={field.type === "number" ? "any" : undefined} value={String(draft[field.key] ?? "")} onChange={event => setDraft({ ...draft, [field.key]: field.type === "number" ? Number(event.target.value) : event.target.value })} />}</>}</label>)}</div>{error && <p className="form-error">{error}</p>}<div className="modal-actions"><button type="button" className="secondary" disabled={saving} onClick={onClose}>Hủy</button><button className="primary" disabled={saving} type="submit">{saving ? "Đang tải ảnh..." : "Lưu dữ liệu"}</button></div></form></div>;
+  return <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !saving) onClose(); }}><form className="modal" onSubmit={submit}><div className="modal-head"><div><p className="eyebrow">DATA EDITOR</p><h2>{title}</h2></div><button type="button" disabled={saving} onClick={onClose}>×</button></div><div className="form-grid">{fields[module].map(field => <label key={field.key} className={field.type === "textarea" ? "wide" : ""}>{field.type === "checkbox" ? <span className="checkbox-label"><input type="checkbox" checked={Boolean(draft[field.key])} onChange={event => setDraft({ ...draft, [field.key]: event.target.checked })} /> {field.label}</span> : <><span>{field.label}{field.required && " *"}</span>{field.key === "owner" ? <select value={String(draft[field.key] ?? "")} onChange={event => setDraft({ ...draft, [field.key]: event.target.value })}><option value="">Chưa gán</option>{personnel.filter(person => String(person.status || "Active") !== "Inactive").map(person => <option key={person.id} value={String(person.name)}>{String(person.name)}{person.role ? ` — ${person.role}` : ""}</option>)}</select> : field.type === "select" ? <select required={field.required} value={String(draft[field.key] ?? field.options?.[0] ?? "")} onChange={event => setDraft({ ...draft, [field.key]: event.target.value })}>{field.options?.map(option => <option key={option}>{option}</option>)}</select> : field.type === "textarea" ? <textarea required={field.required} data-image-field={imageAttachmentFields.has(field.key) ? field.key : undefined} placeholder={imageAttachmentFields.has(field.key) ? "Dán ảnh chụp màn hình hoặc link ảnh, mỗi dòng một ảnh" : undefined} value={String(draft[field.key] ?? "")} onChange={event => setDraft({ ...draft, [field.key]: event.target.value })} /> : <input required={field.required} type={field.type || "text"} step={field.type === "number" ? "any" : undefined} value={String(draft[field.key] ?? "")} onChange={event => setDraft({ ...draft, [field.key]: field.type === "number" ? Number(event.target.value) : event.target.value })} />}</>}</label>)}</div>{error && <p className="form-error">{error}</p>}<div className="modal-actions"><button type="button" className="secondary" disabled={saving} onClick={onClose}>Hủy</button><button className="primary" disabled={saving} type="submit">{saving ? "Đang tải ảnh..." : "Lưu dữ liệu"}</button></div></form></div>;
 }
 
-function DetailModal({ title, module, row, onOpenGallery, onClose }: { title: string; module: ModuleKey; row: Row; onOpenGallery: (images: string[], index: number) => void; onClose: () => void }) {
+function DetailModal({ title, module, row, onOpenGallery, onClose }: { title: string; module: ModuleKey; row: Row; onOpenGallery: (images: string[], index: number, title: string) => void; onClose: () => void }) {
   const moduleFields = fields[module];
   useEffect(() => {
-    const imageFieldIndex = moduleFields.findIndex(field => field.key === "imageUrl");
-    if (imageFieldIndex < 0) return;
+    const imageFields = moduleFields.map((field, index) => ({ field, index })).filter(({ field }) => imageAttachmentFields.has(field.key));
+    if (!imageFields.length) return;
     const timer = window.setTimeout(() => {
-      const item = document.querySelectorAll(".detail-modal .detail-item")[imageFieldIndex];
-      const value = item?.querySelector("strong")?.textContent || "";
-      const links = value.split(/\r?\n/).map(link => link.trim()).filter(link => link.startsWith("http"));
-      if (!item || !links.length || item.querySelector("img")) return;
-      const strong = item.querySelector("strong"); if (strong) strong.remove();
-      const wrapper = document.createElement("div"); wrapper.className = "detail-attachment-album";
-      links.forEach((link, index) => { const button = document.createElement("button"); button.type = "button"; button.title = "Xem album ảnh"; button.addEventListener("click", () => onOpenGallery(links, index)); const image = document.createElement("img"); image.src = link; image.alt = `Ảnh đính kèm ${index + 1}`; image.loading = "lazy"; button.appendChild(image); wrapper.appendChild(button); });
-      item.appendChild(wrapper);
+      imageFields.forEach(({ field, index: fieldIndex }) => {
+        const item = document.querySelectorAll(".detail-modal .detail-item")[fieldIndex];
+        const links = imageLinks(row[field.key]);
+        if (!item || !links.length || item.querySelector("img")) return;
+        const strong = item.querySelector("strong"); if (strong) strong.remove();
+        const wrapper = document.createElement("div"); wrapper.className = "detail-attachment-album";
+        links.forEach((link, index) => { const button = document.createElement("button"); button.type = "button"; button.title = `Xem ${field.label.toLowerCase()}`; button.addEventListener("click", () => onOpenGallery(links, index, field.label)); const image = document.createElement("img"); image.src = link; image.alt = `${field.label} ${index + 1}`; image.loading = "lazy"; button.appendChild(image); wrapper.appendChild(button); });
+        item.appendChild(wrapper);
+      });
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [moduleFields, onOpenGallery]);
+  }, [moduleFields, onOpenGallery, row]);
   return <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}><section className="modal detail-modal"><div className="modal-head"><div><p className="eyebrow">VIEW DETAILS</p><h2>{title}</h2></div><button type="button" onClick={onClose}>×</button></div><div className="detail-grid">{moduleFields.map(field => <div className="detail-item" key={field.key}><span>{field.label}</span><strong>{typeof row[field.key] === "boolean" ? (row[field.key] ? "Có" : "Không") : String(row[field.key] ?? "—")}</strong></div>)}</div><div className="modal-actions"><button type="button" className="primary" onClick={onClose}>Đóng</button></div></section></div>;
 }
 
-function GalleryModal({ images, initialIndex, onClose }: { images: string[]; initialIndex: number; onClose: () => void }) {
+function GalleryModal({ title, images, initialIndex, onClose }: { title: string; images: string[]; initialIndex: number; onClose: () => void }) {
   const [index, setIndex] = useState(initialIndex);
   const previous = () => setIndex(current => (current - 1 + images.length) % images.length);
   const next = () => setIndex(current => (current + 1) % images.length);
@@ -712,7 +707,7 @@ function GalleryModal({ images, initialIndex, onClose }: { images: string[]; ini
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
   }, [images.length, onClose]);
-  return <div className="gallery-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}><section className="gallery-modal"><div className="gallery-head"><div><strong>Ảnh đính kèm</strong><span>{index + 1} / {images.length}</span></div><button type="button" onClick={onClose} aria-label="Đóng">×</button></div><div className="gallery-stage">{images.length > 1 && <button className="gallery-nav previous" type="button" onClick={previous} aria-label="Ảnh trước">‹</button>}<img src={images[index]} alt={`Ảnh đính kèm ${index + 1}`} />{images.length > 1 && <button className="gallery-nav next" type="button" onClick={next} aria-label="Ảnh tiếp theo">›</button>}</div>{images.length > 1 && <div className="gallery-thumbnails">{images.map((image, imageIndex) => <button type="button" className={imageIndex === index ? "active" : ""} key={`${image}-${imageIndex}`} onClick={() => setIndex(imageIndex)}><img src={image} alt={`Xem ảnh ${imageIndex + 1}`} /></button>)}</div>}</section></div>;
+  return <div className="gallery-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}><section className="gallery-modal"><div className="gallery-head"><div><strong>{title}</strong><span>{index + 1} / {images.length}</span></div><button type="button" onClick={onClose} aria-label="Đóng">×</button></div><div className="gallery-stage">{images.length > 1 && <button className="gallery-nav previous" type="button" onClick={previous} aria-label="Ảnh trước">‹</button>}<img src={images[index]} alt={`${title} ${index + 1}`} />{images.length > 1 && <button className="gallery-nav next" type="button" onClick={next} aria-label="Ảnh tiếp theo">›</button>}</div>{images.length > 1 && <div className="gallery-thumbnails">{images.map((image, imageIndex) => <button type="button" className={imageIndex === index ? "active" : ""} key={`${image}-${imageIndex}`} onClick={() => setIndex(imageIndex)}><img src={image} alt={`Xem ảnh ${imageIndex + 1}`} /></button>)}</div>}</section></div>;
 }
 
 function ReportWithGsc({ data, settings }: { data: AppData; settings: SiteSettings }) {
