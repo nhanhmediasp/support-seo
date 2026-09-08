@@ -37,8 +37,8 @@ const defaultSettings: SiteSettings = { name: "Air & Sea Global", domain: "https
 
 const seedData: AppData = {
   tasks: [
-    { id: "TASK-001", title: "Audit technical toàn site", group: "Technical", priority: "High", status: "In progress", due: "2026-09-12", owner: "SEO Freelancer", estimated: 6, actual: 2, url: "https://airandseaglobal.vn", result: "" },
-    { id: "TASK-002", title: "Viết bài visa Singapore", group: "Content", priority: "High", status: "Review", due: "2026-09-10", owner: "SEO Freelancer", estimated: 4, actual: 3, url: "", result: "Đã hoàn thiện bản nháp" },
+    { id: "TASK-001", title: "Audit technical toàn site", group: "Technical", priority: "High", status: "In progress", startDate: "2026-09-08", owner: "SEO Freelancer", estimated: 6, actual: 2, url: "https://airandseaglobal.vn", result: "" },
+    { id: "TASK-002", title: "Viết bài visa Singapore", group: "Content", priority: "High", status: "Review", startDate: "2026-09-07", owner: "SEO Freelancer", estimated: 4, actual: 3, url: "", result: "Đã hoàn thiện bản nháp" },
   ],
   content: [
     { id: "CONTENT-001", topic: "Dịch vụ visa Singapore trọn gói", keyword: "visa Singapore", secondary: "xin visa Singapore, hồ sơ visa Singapore", intent: "Commercial", funnel: "BOFU", cluster: "Visa Singapore", pillar: "", owner: "SEO Freelancer", status: "Published", deadline: "2026-09-05", publishDate: "2026-09-05", priority: "High", volume: 2400, difficulty: 42, business: 9, relevance: 10, potential: 8, score: 85, url: "/dich-vu-visa-singapore", notes: "" },
@@ -68,7 +68,8 @@ const ensureUniqueIds = (source: AppData): AppData => {
       const currentId = String(row.id || "");
       const id = currentId && !seen.has(currentId) ? currentId : uid(module.toUpperCase());
       seen.add(id);
-      const normalizedRow = module === "worklogs" && !row.status ? { ...row, status: Number(row.completion || 0) >= 100 ? "Đã xong" : Number(row.completion || 0) > 0 ? "Đang làm" : "Chưa làm" } : row;
+      let normalizedRow = module === "worklogs" && !row.status ? { ...row, status: Number(row.completion || 0) >= 100 ? "Đã xong" : Number(row.completion || 0) > 0 ? "Đang làm" : "Chưa làm" } : row;
+      if (module === "tasks" && !normalizedRow.startDate && normalizedRow.due) normalizedRow = { ...normalizedRow, startDate: normalizedRow.due };
       return { ...normalizedRow, id };
     });
   });
@@ -79,7 +80,7 @@ const fields: Record<ModuleKey, Field[]> = {
   tasks: [
     { key: "title", label: "Tên công việc", required: true }, { key: "group", label: "Nhóm SEO", type: "select", options: ["Content", "Technical", "On-page", "Off-page", "Entity", "Index", "Report", "General"] },
     { key: "priority", label: "Ưu tiên", type: "select", options: ["Low", "Medium", "High", "Critical"] }, { key: "status", label: "Trạng thái", type: "select", options: ["Backlog", "To do", "In progress", "Waiting", "Review", "Done", "Cancelled"] },
-    { key: "due", label: "Deadline", type: "date" }, { key: "completedDate", label: "Ngày hoàn thành", type: "date" }, { key: "owner", label: "Người phụ trách" }, { key: "estimated", label: "Giờ dự kiến", type: "number" }, { key: "actual", label: "Giờ thực tế", type: "number" },
+    { key: "startDate", label: "Ngày bắt đầu", type: "date" }, { key: "completedDate", label: "Ngày hoàn thành", type: "date" }, { key: "owner", label: "Người phụ trách" }, { key: "estimated", label: "Giờ dự kiến", type: "number" }, { key: "actual", label: "Giờ thực tế", type: "number" },
     { key: "url", label: "URL liên quan" }, { key: "result", label: "Kết quả/Ghi chú", type: "textarea" },
   ],
   content: [
@@ -104,7 +105,7 @@ const fields: Record<ModuleKey, Field[]> = {
 };
 
 const moduleMeta: Record<ModuleKey, { title: string; eyebrow: string; description: string; columns: string[]; prefix: string }> = {
-  tasks: { title: "Công việc", eyebrow: "WORKFLOW MANAGEMENT", description: "Quản lý toàn bộ đầu việc SEO, thời gian và kết quả.", columns: ["title", "group", "priority", "due", "status", "owner"], prefix: "TASK" },
+  tasks: { title: "Công việc", eyebrow: "WORKFLOW MANAGEMENT", description: "Theo dõi công việc từ ngày bắt đầu đến ngày hoàn thành.", columns: ["title", "group", "priority", "startDate", "completedDate", "status", "owner"], prefix: "TASK" },
   content: { title: "Kế hoạch nội dung", eyebrow: "CONTENT OPERATIONS", description: "Quản lý keyword, topic cluster, tiến độ và điểm cơ hội.", columns: ["topic", "keyword", "intent", "cluster", "publishDate", "score", "owner", "status"], prefix: "CONTENT" },
   calendar: { title: "Lịch đăng bài", eyebrow: "PUBLISHING CALENDAR", description: "Theo dõi lịch xuất bản, duyệt bài và phân phối nội dung.", columns: ["date", "title", "keyword", "channel", "owner", "status"], prefix: "CAL" },
   onpage: { title: "On-page Checklist", eyebrow: "URL QUALITY CONTROL", description: "Chấm điểm từng URL và phát hiện hạng mục còn thiếu.", columns: ["url", "owner", "checked", "title", "meta", "h1", "internal", "alt", "schema", "score"], prefix: "ONPAGE" },
@@ -120,7 +121,7 @@ const moduleMeta: Record<ModuleKey, { title: string; eyebrow: string; descriptio
 };
 
 const moduleDateKeys: Record<ModuleKey, string[]> = {
-  tasks: ["completedDate", "due"],
+  tasks: ["completedDate", "startDate"],
   content: ["publishDate", "deadline"],
   calendar: ["date", "approved"],
   onpage: ["checked"],
@@ -385,11 +386,11 @@ export default function Home() {
     const generated: Row[] = [];
     data.audits.filter(row => row.status !== "Done" && ["High", "Critical"].includes(String(row.severity))).forEach(row => {
       const title = `Xử lý audit: ${row.issue}`;
-      if (!existing.has(title)) generated.push({ id: uid("TASK"), title, group: "Technical", priority: row.severity, status: "To do", due: row.due || today(), owner: row.owner || settings.owner, estimated: 2, actual: 0, url: row.url, result: "Tự tạo từ Technical Audit" });
+      if (!existing.has(title)) generated.push({ id: uid("TASK"), title, group: "Technical", priority: row.severity, status: "To do", startDate: today(), owner: row.owner || settings.owner, estimated: 2, actual: 0, url: row.url, result: "Tự tạo từ Technical Audit" });
     });
     data.indexing.filter(row => row.status !== "Indexed" && String(row.next) <= today()).forEach(row => {
       const title = `Kiểm tra index: ${row.url}`;
-      if (!existing.has(title)) generated.push({ id: uid("TASK"), title, group: "Index", priority: row.priority || "High", status: "To do", due: today(), owner: settings.owner, estimated: 1, actual: 0, url: row.url, result: "Tự tạo từ Index Tracking" });
+      if (!existing.has(title)) generated.push({ id: uid("TASK"), title, group: "Index", priority: row.priority || "High", status: "To do", startDate: today(), owner: settings.owner, estimated: 1, actual: 0, url: row.url, result: "Tự tạo từ Index Tracking" });
     });
     if (generated.length) { setData(current => ({ ...current, tasks: [...generated, ...current.tasks] })); addChange("Chạy tự động hóa", "Tasks", `Tạo ${generated.length} công việc`); }
     setToast(generated.length ? `Đã tạo ${generated.length} công việc cần xử lý` : "Không có cảnh báo mới");
@@ -434,14 +435,14 @@ function ProjectModal({ onClose, onCreate }: { onClose: () => void; onCreate: (n
 
 function Dashboard({ data, settings, setActive, runAutomation }: { data: AppData; settings: SiteSettings; setActive: (value: string) => void; runAutomation: () => void }) {
   const done = data.tasks.filter(row => row.status === "Done").length;
-  const overdue = data.tasks.filter(row => row.status !== "Done" && row.due && String(row.due) < today()).length;
+  const inProgress = data.tasks.filter(row => !["Done", "Cancelled"].includes(String(row.status))).length;
   const indexed = data.indexing.filter(row => row.status === "Indexed").length;
   const hours = data.worklogs.reduce((sum, row) => sum + Number(row.hours || 0), 0);
   const clicks = data.rankings.reduce((sum, row) => sum + Number(row.clicks || 0), 0);
   const impressions = data.rankings.reduce((sum, row) => sum + Number(row.impressions || 0), 0);
   const cards = [
     ["Hoàn thành task", `${data.tasks.length ? Math.round(done / data.tasks.length * 100) : 0}%`, `${done}/${data.tasks.length} công việc`, "blue"],
-    ["Task trễ hạn", overdue, overdue ? "Cần xử lý ngay" : "Đang đúng tiến độ", overdue ? "red" : "green"],
+    ["Công việc đang làm", inProgress, `${inProgress} công việc đang mở`, inProgress ? "orange" : "green"],
     ["URL đã index", `${indexed}/${data.indexing.length}`, `${data.indexing.length - indexed} URL cần theo dõi`, "orange"],
     ["Thời gian thực hiện", `${hours}h`, "Từ nhật ký làm việc", "purple"],
   ];
@@ -449,7 +450,7 @@ function Dashboard({ data, settings, setActive, runAutomation }: { data: AppData
     <section className="hero-row"><div><p className="eyebrow">TỔNG QUAN HIỆU SUẤT</p><h2>Chào mừng trở lại, {settings.owner}</h2><p className="muted">Tình trạng SEO hiện tại của <b>{settings.domain}</b>.</p></div><div className="button-row"><button className="secondary" onClick={runAutomation}>⚡ Quét cảnh báo</button><button className="primary" onClick={() => setActive("tasks")}>Mở công việc →</button></div></section>
     <section className="metric-grid">{cards.map(([label, value, note, color]) => <div className="metric-card" key={String(label)}><div className={`metric-icon ${color}`}>◆</div><div className="metric-copy"><span>{label}</span><strong>{value}</strong><small>{note}</small></div></div>)}</section>
     <section className="dashboard-grid"><div className="panel"><div className="panel-title"><h3>Hiệu suất tìm kiếm</h3><button onClick={() => setActive("rankings")}>Chi tiết →</button></div><div className="kpi-strip"><div><span>Organic clicks</span><b>{clicks.toLocaleString()}</b></div><div><span>Impressions</span><b>{impressions.toLocaleString()}</b></div><div><span>CTR</span><b>{impressions ? (clicks / impressions * 100).toFixed(2) : 0}%</b></div><div><span>Vị trí TB</span><b>{data.rankings.length ? (data.rankings.reduce((sum, row) => sum + Number(row.position || 0), 0) / data.rankings.length).toFixed(1) : 0}</b></div></div><div className="chart-bars">{data.rankings.slice(0, 8).map(row => <div key={row.id}><span>{row.keyword}</span><i style={{ width: `${Math.max(8, 100 - Number(row.position) * 2)}%` }} /><b>#{row.position}</b></div>)}</div></div><div className="panel"><div className="panel-title"><h3>Trạng thái hệ thống</h3></div><div className="signal-list"><Signal label="Bài đã xuất bản" value={data.content.filter(row => row.status === "Published").length} /><Signal label="Audit High/Critical" value={data.audits.filter(row => ["High", "Critical"].includes(String(row.severity)) && row.status !== "Done").length} danger /><Signal label="Backlink đang live" value={data.backlinks.filter(row => row.status === "Live").length} /><Signal label="Entity đã xác minh" value={data.entities.filter(row => row.verified === "Verified").length} /></div></div></section>
-    <section className="panel full"><div className="panel-head-pad"><h3>Công việc cần ưu tiên</h3><button onClick={() => setActive("tasks")}>Xem tất cả →</button></div><SimpleTable rows={data.tasks.filter(row => row.status !== "Done").slice(0, 5)} columns={["title", "group", "priority", "due", "status"]} /></section>
+    <section className="panel full"><div className="panel-head-pad"><h3>Công việc cần ưu tiên</h3><button onClick={() => setActive("tasks")}>Xem tất cả →</button></div><SimpleTable rows={data.tasks.filter(row => row.status !== "Done").slice(0, 5)} columns={["title", "group", "priority", "startDate", "status"]} /></section>
   </>;
 }
 
@@ -531,7 +532,12 @@ function ModuleView({ module, rows, setRows, onChange, siteUrl, personnel }: { m
   const statuses = Array.from(new Set(rows.map(row => String(row.status || "")).filter(Boolean)));
 
   const save = (draft: Row) => {
-    const normalized = normalizeRow(module, draft);
+    let normalized = normalizeRow(module, draft);
+    if (module === "tasks") {
+      normalized = { ...normalized, startDate: normalized.startDate || today() };
+      if (normalized.status === "Done" && !normalized.completedDate) normalized.completedDate = today();
+      if (normalized.status !== "Done") normalized.completedDate = "";
+    }
     const exists = rows.some(row => row.id === normalized.id);
     setRows(exists ? rows.map(row => row.id === normalized.id ? normalized : row) : [normalized, ...rows]);
     onChange(exists ? "Cập nhật" : "Tạo mới", `${meta.title}: ${normalized.id}`);
@@ -607,7 +613,7 @@ function SimpleTable({ rows, columns, actions, showIndex = false, indexOffset = 
 function Badge({ value }: { value: string }) { const lower = value.toLowerCase(); const tone = ["done", "published", "indexed", "live", "verified", "complete"].some(x => lower.includes(x)) ? "good" : ["high", "critical", "error", "lost", "removed", "overdue"].some(x => lower.includes(x)) ? "bad" : "warn"; return <span className={`badge ${tone}`}>{value || "—"}</span>; }
 
 function EditorModal({ title, module, row, personnel, defaultOwner, onSave, onClose }: { title: string; module: ModuleKey; row: Row; personnel: Row[]; defaultOwner: string; onSave: (row: Row) => void | Promise<void>; onClose: () => void }) {
-  const [draft, setDraft] = useState<Row>(() => ({ ...row, ...(fields[module].some(field => field.key === "owner") && !row.owner && defaultOwner ? { owner: defaultOwner } : {}), ...(module === "worklogs" && !row.date ? { date: today() } : {}), ...(module === "onpage" && !row.checked ? { checked: today() } : {}), ...(module === "personnel" && !row.updated ? { updated: today() } : {}) }));
+  const [draft, setDraft] = useState<Row>(() => ({ ...row, ...(fields[module].some(field => field.key === "owner") && !row.owner && defaultOwner ? { owner: defaultOwner } : {}), ...(module === "tasks" && !row.startDate ? { startDate: today() } : {}), ...(module === "worklogs" && !row.date ? { date: today() } : {}), ...(module === "onpage" && !row.checked ? { checked: today() } : {}), ...(module === "personnel" && !row.updated ? { updated: today() } : {}) }));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const uploadPastedImage = async (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
@@ -715,7 +721,7 @@ function ReportWithGsc({ data, settings }: { data: AppData; settings: SiteSettin
   const [to, setTo] = useState(today());
   const inRange = (value: unknown) => { const date = String(value || ""); return Boolean(date && date >= from && date <= to); };
   const logs = data.worklogs.filter(row => inRange(row.date));
-  const tasks = data.tasks.filter(row => row.status === "Done" && inRange(row.completedDate || row.due));
+  const tasks = data.tasks.filter(row => row.status === "Done" && inRange(row.completedDate || row.startDate));
   const content = data.content.filter(row => inRange(row.publishDate || row.deadline));
   const audits = data.audits.filter(row => inRange(row.completed || row.found || row.due));
   const indexing = data.indexing.filter(row => inRange(row.checked || row.submitted));
@@ -736,7 +742,7 @@ function ReportWithGsc({ data, settings }: { data: AppData; settings: SiteSettin
   const topPages = [...pageMap.values()].sort((a, b) => Number(b.clicks || 0) - Number(a.clicks || 0)).slice(0, 10);
   const metricRows = [["GSC Clicks", clicks.toLocaleString()], ["GSC Impressions", impressions.toLocaleString()], ["GSC CTR", `${ctr.toFixed(2)}%`], ["Vị trí trung bình", avgPosition ? avgPosition.toFixed(1) : "—"], ["Keyword Top 3", top3], ["Keyword Top 10", top10], ["Keyword Top 20", top20], ["Keyword tăng hạng", improved], ["Task hoàn thành", tasks.length], ["Giờ làm việc", `${hours}h`], ["Bài đã đăng", content.filter(row => row.status === "Published").length], ["Audit đã xử lý", audits.filter(row => row.status === "Done").length]];
   const exportReport = () => { const rows = [["Báo cáo SEO", settings.name, from, to], ...metricRows, ["Top keyword", "Page", "Position", "Clicks", "Impressions", "CTR"], ...topQueries.map(row => [row.keyword, row.page, row.position, row.clicks, row.impressions, row.ctr])]; downloadFile(`bao-cao-seo-${from}-${to}.csv`, "\uFEFF" + rows.map(row => row.map(csvEscape).join(",")).join("\n"), "text/csv;charset=utf-8"); };
-  return <><section className="page-heading print-hide"><div><p className="eyebrow">PERFORMANCE REPORTING + SEARCH CONSOLE</p><h2>Báo cáo SEO chi tiết</h2><p className="muted">Công việc vận hành và chỉ số Google Search Console trong cùng một khoảng thời gian.</p></div><div className="button-row"><button className="secondary" onClick={exportReport}>Xuất CSV</button><button className="primary" onClick={() => window.print()}>In / Lưu PDF</button></div></section><div className="report-filter panel print-hide"><div><label>Từ ngày<input type="date" value={from} onChange={event => setFrom(event.target.value)} /></label><label>Đến ngày<input type="date" value={to} onChange={event => setTo(event.target.value)} /></label></div><div className="quick-ranges"><button onClick={() => { setFrom(today()); setTo(today()); }}>Hôm nay</button><button onClick={() => { const date = new Date(); date.setDate(date.getDate() - 6); setFrom(date.toISOString().slice(0, 10)); setTo(today()); }}>7 ngày</button><button onClick={() => { setFrom(firstDay); setTo(today()); }}>Tháng này</button></div><span className="range-label">Đang xem: <b>{from}</b> → <b>{to}</b></span></div><div className="report-title"><h2>Báo cáo SEO — {settings.name}</h2><p>{from} → {to} · {settings.domain}</p></div><div className="report-grid">{metricRows.map(([label, value]) => <div className="report-card" key={String(label)}><span>{label}</span><strong>{value}</strong></div>)}</div><section className="report-detail-grid"><div className="panel"><div className="panel-title"><h3>Google Search Console</h3><span className="range-label">{rankings.length} dòng dữ liệu</span></div><div className="gsc-summary"><div><span>Clicks</span><b>{clicks.toLocaleString()}</b></div><div><span>Impressions</span><b>{impressions.toLocaleString()}</b></div><div><span>CTR</span><b>{ctr.toFixed(2)}%</b></div><div><span>Vị trí TB</span><b>{avgPosition ? avgPosition.toFixed(1) : "—"}</b></div></div><h4>Top từ khóa theo clicks</h4><SimpleTable rows={topQueries} columns={["keyword", "page", "position", "clicks", "impressions", "ctr"]} /></div><div className="panel"><div className="panel-title"><h3>Landing page hiệu suất cao</h3><span className="range-label">Xếp theo clicks</span></div><SimpleTable rows={topPages} columns={["page", "clicks", "impressions", "position", "ctr"]} /></div></section><section className="report-detail-grid"><div className="panel"><div className="panel-title"><h3>Nhật ký công việc ({logs.length})</h3><span className="range-label">{hours} giờ</span></div><SimpleTable rows={logs} columns={["date", "taskId", "group", "hours", "result"]} /></div><div className="panel"><div className="panel-title"><h3>Task, content, audit</h3></div><SimpleTable rows={[...tasks.map(row => ({ ...row, recordType: "Task" })), ...content.map(row => ({ ...row, recordType: "Content" })), ...audits.map(row => ({ ...row, recordType: "Audit" }))]} columns={["recordType", "title", "topic", "issue", "status", "due"]} /></div></section><section className="report-detail-grid"><div className="panel"><div className="panel-title"><h3>Index tracking</h3></div><SimpleTable rows={indexing} columns={["url", "type", "status", "checked", "next", "priority"]} /></div><div className="panel"><div className="panel-title"><h3>Backlink triển khai</h3></div><SimpleTable rows={backlinks} columns={["domain", "targetUrl", "anchor", "status", "placed", "score"]} /></div></section></>;
+  return <><section className="page-heading print-hide"><div><p className="eyebrow">PERFORMANCE REPORTING + SEARCH CONSOLE</p><h2>Báo cáo SEO chi tiết</h2><p className="muted">Công việc vận hành và chỉ số Google Search Console trong cùng một khoảng thời gian.</p></div><div className="button-row"><button className="secondary" onClick={exportReport}>Xuất CSV</button><button className="primary" onClick={() => window.print()}>In / Lưu PDF</button></div></section><div className="report-filter panel print-hide"><div><label>Từ ngày<input type="date" value={from} onChange={event => setFrom(event.target.value)} /></label><label>Đến ngày<input type="date" value={to} onChange={event => setTo(event.target.value)} /></label></div><div className="quick-ranges"><button onClick={() => { setFrom(today()); setTo(today()); }}>Hôm nay</button><button onClick={() => { const date = new Date(); date.setDate(date.getDate() - 6); setFrom(date.toISOString().slice(0, 10)); setTo(today()); }}>7 ngày</button><button onClick={() => { setFrom(firstDay); setTo(today()); }}>Tháng này</button></div><span className="range-label">Đang xem: <b>{from}</b> → <b>{to}</b></span></div><div className="report-title"><h2>Báo cáo SEO — {settings.name}</h2><p>{from} → {to} · {settings.domain}</p></div><div className="report-grid">{metricRows.map(([label, value]) => <div className="report-card" key={String(label)}><span>{label}</span><strong>{value}</strong></div>)}</div><section className="report-detail-grid"><div className="panel"><div className="panel-title"><h3>Google Search Console</h3><span className="range-label">{rankings.length} dòng dữ liệu</span></div><div className="gsc-summary"><div><span>Clicks</span><b>{clicks.toLocaleString()}</b></div><div><span>Impressions</span><b>{impressions.toLocaleString()}</b></div><div><span>CTR</span><b>{ctr.toFixed(2)}%</b></div><div><span>Vị trí TB</span><b>{avgPosition ? avgPosition.toFixed(1) : "—"}</b></div></div><h4>Top từ khóa theo clicks</h4><SimpleTable rows={topQueries} columns={["keyword", "page", "position", "clicks", "impressions", "ctr"]} /></div><div className="panel"><div className="panel-title"><h3>Landing page hiệu suất cao</h3><span className="range-label">Xếp theo clicks</span></div><SimpleTable rows={topPages} columns={["page", "clicks", "impressions", "position", "ctr"]} /></div></section><section className="report-detail-grid"><div className="panel"><div className="panel-title"><h3>Nhật ký công việc ({logs.length})</h3><span className="range-label">{hours} giờ</span></div><SimpleTable rows={logs} columns={["date", "taskId", "group", "hours", "result"]} /></div><div className="panel"><div className="panel-title"><h3>Task, content, audit</h3></div><SimpleTable rows={[...tasks.map(row => ({ ...row, recordType: "Task" })), ...content.map(row => ({ ...row, recordType: "Content" })), ...audits.map(row => ({ ...row, recordType: "Audit" }))]} columns={["recordType", "title", "topic", "issue", "status", "startDate", "due"]} /></div></section><section className="report-detail-grid"><div className="panel"><div className="panel-title"><h3>Index tracking</h3></div><SimpleTable rows={indexing} columns={["url", "type", "status", "checked", "next", "priority"]} /></div><div className="panel"><div className="panel-title"><h3>Backlink triển khai</h3></div><SimpleTable rows={backlinks} columns={["domain", "targetUrl", "anchor", "status", "placed", "score"]} /></div></section></>;
 }
 
 function DetailedReports({ data, settings }: { data: AppData; settings: SiteSettings }) {
@@ -744,7 +750,7 @@ function DetailedReports({ data, settings }: { data: AppData; settings: SiteSett
   const [from, setFrom] = useState(firstDay);
   const [to, setTo] = useState(today());
   const inRange = (value: unknown) => { const date = String(value || ""); return Boolean(date && date >= from && date <= to); };
-  const tasks = data.tasks.filter(row => row.status === "Done" && inRange(row.completedDate || row.due));
+  const tasks = data.tasks.filter(row => row.status === "Done" && inRange(row.completedDate || row.startDate));
   const logs = data.worklogs.filter(row => inRange(row.date));
   const content = data.content.filter(row => inRange(row.publishDate || row.deadline));
   const audits = data.audits.filter(row => inRange(row.completed || row.found || row.due));
@@ -766,11 +772,12 @@ function DetailedReports({ data, settings }: { data: AppData; settings: SiteSett
   const hours = logs.reduce((sum, row) => sum + Number(row.hours || 0), 0);
   const estimated = tasks.reduce((sum, row) => sum + Number(row.estimated || 0), 0);
   const actual = tasks.reduce((sum, row) => sum + Number(row.actual || 0), 0) + hours;
-  const onTime = tasks.filter(row => !row.due || !row.completedDate || String(row.completedDate) <= String(row.due)).length;
-  const completion = data.tasks.length ? Math.round(tasks.length / data.tasks.filter(row => inRange(row.due || row.completedDate)).length * 100) || 0 : 0;
+  const withCompletionDate = tasks.filter(row => row.completedDate).length;
+  const taskCountInRange = data.tasks.filter(row => inRange(row.completedDate || row.startDate)).length;
+  const completion = taskCountInRange ? Math.round(tasks.length / taskCountInRange * 100) : 0;
   const metrics = [
     ["Đầu việc hoàn thành", tasks.length], ["Giờ đã làm", `${hours}h`], ["Bài đã đăng", content.filter(row => row.status === "Published").length], ["Audit đã xử lý", audits.filter(row => row.status === "Done").length],
-    ["Tỷ lệ hoàn thành", `${completion}%`], ["Đúng deadline", `${tasks.length ? Math.round(onTime / tasks.length * 100) : 0}%`], ["URL đã kiểm tra", indexRows.length], ["Backlink triển khai", backlinks.length],
+    ["Tỷ lệ hoàn thành", `${completion}%`], ["Có ngày hoàn thành", `${withCompletionDate}/${tasks.length}`], ["URL đã kiểm tra", indexRows.length], ["Backlink triển khai", backlinks.length],
     ["GSC Clicks", gscClicks.toLocaleString()], ["GSC Impressions", gscImpressions.toLocaleString()], ["GSC CTR", `${gscCtr.toFixed(2)}%`], ["Vị trí trung bình", gscPosition ? gscPosition.toFixed(1) : "—"],
     ["Keyword Top 3", top3], ["Keyword Top 10", top10], ["Keyword Top 20", top20], ["Keyword tăng hạng", improved],
   ];
@@ -780,8 +787,8 @@ function DetailedReports({ data, settings }: { data: AppData; settings: SiteSett
       ["CHỈ SỐ", ...metrics.flatMap(([label, value]) => [label, value])],
       ["NHẬT KÝ CÔNG VIỆC", "Ngày", "Task", "Nhóm", "Số giờ", "Kết quả"],
       ...logs.map(row => [row.date, row.taskId, row.group, row.hours, row.result]),
-      ["TASK HOÀN THÀNH", "Tên task", "Nhóm", "Ngày hoàn thành", "Giờ thực tế", "Kết quả"],
-      ...tasks.map(row => [row.title, row.group, row.completedDate || row.due, row.actual, row.result]),
+      ["TASK HOÀN THÀNH", "Tên task", "Nhóm", "Ngày bắt đầu", "Ngày hoàn thành", "Giờ thực tế", "Kết quả"],
+      ...tasks.map(row => [row.title, row.group, row.startDate, row.completedDate, row.actual, row.result]),
     ];
     downloadFile(`bao-cao-seo-${from}-${to}.csv`, "\uFEFF" + sections.map(row => row.map(csvEscape).join(",")).join("\n"), "text/csv;charset=utf-8");
   };
@@ -791,11 +798,11 @@ function DetailedReports({ data, settings }: { data: AppData; settings: SiteSett
 function Reports({ data, settings }: { data: AppData; settings: SiteSettings }) {
   const done = data.tasks.filter(row => row.status === "Done").length;
   const completion = data.tasks.length ? Math.round(done / data.tasks.length * 100) : 0;
-  const onTime = data.tasks.filter(row => row.status === "Done" && (!row.due || String(row.due) >= today())).length;
+  const withCompletionDate = data.tasks.filter(row => row.status === "Done" && row.completedDate).length;
   const clicks = data.rankings.reduce((sum, row) => sum + Number(row.clicks || 0), 0);
   const impressions = data.rankings.reduce((sum, row) => sum + Number(row.impressions || 0), 0);
   const stats = [
-    ["Bài đã đăng", data.content.filter(row => row.status === "Published").length], ["Task hoàn thành", done], ["Tỷ lệ hoàn thành", `${completion}%`], ["Đúng deadline", `${done ? Math.round(onTime / done * 100) : 0}%`],
+    ["Bài đã đăng", data.content.filter(row => row.status === "Published").length], ["Task hoàn thành", done], ["Tỷ lệ hoàn thành", `${completion}%`], ["Có ngày hoàn thành", `${withCompletionDate}/${done}`],
     ["URL đã audit", data.audits.length], ["Lỗi đã xử lý", data.audits.filter(row => row.status === "Done").length], ["Backlink live", data.backlinks.filter(row => row.status === "Live").length], ["Entity đã tạo", data.entities.length],
     ["URL đã index", data.indexing.filter(row => row.status === "Indexed").length], ["Giờ làm việc", `${data.worklogs.reduce((sum, row) => sum + Number(row.hours || 0), 0)}h`], ["Organic clicks", clicks], ["Impressions", impressions.toLocaleString()],
   ];
