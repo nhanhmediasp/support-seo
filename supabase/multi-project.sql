@@ -124,6 +124,27 @@ do $$ declare table_name text; begin
   end loop;
 end $$;
 
+-- RLS policies filter rows, while grants allow the authenticated API role to
+-- access the tables in the first place. Some new projects use restrictive
+-- default privileges, so keep these grants explicit and repeatable.
+grant usage on schema public to authenticated;
+grant select, insert, update, delete on table
+  public.sites,
+  public.profiles,
+  public.site_members,
+  public.site_workspaces,
+  public.tasks,
+  public.content_items,
+  public.audit_items,
+  public.index_checks,
+  public.backlinks,
+  public.entities,
+  public.worklogs,
+  public.search_console_daily,
+  public.activity_log
+to authenticated;
+grant usage, select on all sequences in schema public to authenticated;
+
 -- Enable live updates so local and Vercel sessions receive each other's changes.
 do $$ begin
   if not exists (

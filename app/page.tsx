@@ -290,8 +290,17 @@ export default function Home() {
         const storedProjects = parseStored<Project[]>(localStorage.getItem("air-sea-projects-v1"), []);
         const localProjects = storedProjects.length ? storedProjects : [{ id: "project-air-sea", name: defaultSettings.name, domain: defaultSettings.domain, timezone: defaultSettings.timezone }];
         for (const localProject of localProjects) {
-          const { data: createdProject } = await client.from("sites").insert({ name: localProject.name, domain: normalizeDomain(localProject.domain), timezone: localProject.timezone || defaultSettings.timezone, owner_id: user.id }).select("id,name,domain,timezone,created_at").single();
-          if (!createdProject) continue;
+          const { data: createdProject, error: createProjectError } = await client.from("sites").insert({ name: localProject.name, domain: normalizeDomain(localProject.domain), timezone: localProject.timezone || defaultSettings.timezone, owner_id: user.id }).select("id,name,domain,timezone,created_at").single();
+          if (createProjectError) {
+            setStartupError(`Không tạo được project cloud: ${createProjectError.message}`);
+            setAuthChecked(true);
+            return;
+          }
+          if (!createdProject) {
+            setStartupError("Không tạo được project cloud: Supabase không trả về dữ liệu project vừa tạo.");
+            setAuthChecked(true);
+            return;
+          }
           availableProjects.push(createdProject);
           const rawData = localStorage.getItem(`air-sea-seo-data-${localProject.id}`);
           const rawSettings = localStorage.getItem(`air-sea-seo-settings-${localProject.id}`);
