@@ -463,6 +463,7 @@ function ModuleView({ module, rows, setRows, onChange, siteUrl, personnel }: { m
   const meta = moduleMeta[module];
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("All");
+  const [workGroup, setWorkGroup] = useState("All");
   const [datePreset, setDatePreset] = useState("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -492,12 +493,13 @@ function ModuleView({ module, rows, setRows, onChange, siteUrl, personnel }: { m
     const result = rows.filter(row => {
       const matchesQuery = Object.values(row).join(" ").toLowerCase().includes(query.toLowerCase());
       const matchesStatus = status === "All" || String(row.status) === status;
+      const matchesWorkGroup = module !== "worklogs" || workGroup === "All" || String(row.group || "") === workGroup;
       const rowDate = dateKeys.map(key => normalizeFilterDate(row[key])).find(Boolean) || "";
       const matchesDate = (!dateFrom && !dateTo) || Boolean(rowDate && (!dateFrom || rowDate >= dateFrom) && (!dateTo || rowDate <= dateTo));
-      if (module !== "rankings") return matchesQuery && matchesStatus && matchesDate;
+      if (module !== "rankings") return matchesQuery && matchesStatus && matchesWorkGroup && matchesDate;
       const position = Number(row.position || 0);
       const matchesBand = rankBand === "All" || (rankBand === "top3" && position > 0 && position <= 3) || (rankBand === "top10" && position > 0 && position <= 10) || (rankBand === "top20" && position > 0 && position <= 20) || (rankBand === "21-50" && position > 20 && position <= 50) || (rankBand === "51-100" && position > 50 && position <= 100) || (rankBand === "100+" && position > 100) || (rankBand === "unknown" && position <= 0);
-      return matchesQuery && matchesStatus && matchesBand && matchesDate;
+      return matchesQuery && matchesStatus && matchesWorkGroup && matchesBand && matchesDate;
     });
     if (module !== "rankings") return [...result].sort((left, right) => Number(["done", "đã xong"].includes(String(left.status || "").toLowerCase())) - Number(["done", "đã xong"].includes(String(right.status || "").toLowerCase())));
     return result.sort((left, right) => {
@@ -505,11 +507,11 @@ function ModuleView({ module, rows, setRows, onChange, siteUrl, personnel }: { m
       const difference = Number(left[rankSort] || 0) - Number(right[rankSort] || 0);
       return (difference || String(left.keyword || "").localeCompare(String(right.keyword || ""), "vi")) * (rankDirection === "asc" ? 1 : -1);
     });
-  }, [rows, query, status, module, rankBand, rankSort, rankDirection, dateKeys, dateFrom, dateTo]);
+  }, [rows, query, status, workGroup, module, rankBand, rankSort, rankDirection, dateKeys, dateFrom, dateTo]);
   const rankPageSize = 30;
   const rankTotalPages = module === "rankings" ? Math.max(1, Math.ceil(filtered.length / rankPageSize)) : 1;
   const visibleRows = module === "rankings" ? filtered.slice((rankPage - 1) * rankPageSize, rankPage * rankPageSize) : filtered;
-  useEffect(() => { setDatePreset("all"); setDateFrom(""); setDateTo(""); }, [module]);
+  useEffect(() => { setDatePreset("all"); setDateFrom(""); setDateTo(""); setWorkGroup("All"); }, [module]);
   useEffect(() => {
     const imageLabels = fields[module].filter(field => imageAttachmentFields.has(field.key)).map(field => field.label);
     if (!imageLabels.length) return;
@@ -537,6 +539,7 @@ function ModuleView({ module, rows, setRows, onChange, siteUrl, personnel }: { m
   useEffect(() => { if (module === "rankings") setRankPage(1); }, [module, query, status, rankBand, rankSort, rankDirection, rows.length]);
   useEffect(() => { if (rankPage > rankTotalPages) setRankPage(rankTotalPages); }, [rankPage, rankTotalPages]);
   const statuses = Array.from(new Set(rows.map(row => String(row.status || "")).filter(Boolean)));
+  const workGroups = Array.from(new Set(rows.map(row => String(row.group || "")).filter(Boolean)));
 
   const save = (draft: Row) => {
     let normalized = normalizeRow(module, draft);
@@ -597,7 +600,7 @@ function ModuleView({ module, rows, setRows, onChange, siteUrl, personnel }: { m
   return <>
     <section className="page-heading"><div><p className="eyebrow">{meta.eyebrow}</p><h2>{meta.title}</h2><p className="muted">{meta.description}</p>{module === "rankings" && gscStatus && <p className="sync-status">{gscStatus}</p>}</div><div className="button-row">{module === "rankings" && <><button className="secondary" onClick={() => { window.location.href = "/api/search-console/auth?returnTo=/rankings"; }}>Kết nối GSC</button><button className="secondary" onClick={syncSearchConsole}>↻ Đồng bộ GSC</button></>}<button className="primary" onClick={() => { setEditing(null); setOpen(true); }}>＋ Thêm bản ghi</button></div></section>
     {dateKeys.length > 0 && <DateFilterBar preset={datePreset} from={dateFrom} to={dateTo} onPreset={applyDatePreset} onFrom={value => { setDatePreset("custom"); setDateFrom(value); }} onTo={value => { setDatePreset("custom"); setDateTo(value); }} />}
-    <div className="toolbar"><div className="toolbar-left"><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Tìm kiếm dữ liệu…" />{statuses.length > 0 && <select value={status} onChange={event => setStatus(event.target.value)}><option>All</option>{statuses.map(item => <option key={item}>{item}</option>)}</select>}{module === "rankings" && <><select value={rankBand} onChange={event => setRankBand(event.target.value)}><option value="All">Tất cả thứ hạng</option><option value="top3">Top 3</option><option value="top10">Top 10</option><option value="top20">Top 20</option><option value="21-50">Top 21–50</option><option value="51-100">Top 51–100</option><option value="100+">Ngoài Top 100</option><option value="unknown">Chưa có thứ hạng</option></select><select value={rankSort} onChange={event => setRankSort(event.target.value)}><option value="position">Sắp xếp: Vị trí</option><option value="keyword">Sắp xếp: Keyword</option><option value="clicks">Sắp xếp: Clicks</option><option value="impressions">Sắp xếp: Impressions</option><option value="ctr">Sắp xếp: CTR</option></select><button className="secondary sort-direction" onClick={() => setRankDirection(current => current === "asc" ? "desc" : "asc")}>{rankDirection === "asc" ? "Tăng dần ↑" : "Giảm dần ↓"}</button></>}</div><div className="button-row"><input ref={fileRef} hidden type="file" accept=".csv" onChange={importCsv} /><button className="secondary" onClick={() => fileRef.current?.click()}>{module === "rankings" ? "Nhập CSV GSC" : "Nhập CSV"}</button><button className="secondary" onClick={exportCsv}>Xuất CSV</button></div></div>
+    <div className="toolbar"><div className="toolbar-left"><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Tìm kiếm dữ liệu…" />{statuses.length > 0 && <select value={status} onChange={event => setStatus(event.target.value)}><option>All</option>{statuses.map(item => <option key={item}>{item}</option>)}</select>}{module === "worklogs" && workGroups.length > 0 && <select value={workGroup} onChange={event => setWorkGroup(event.target.value)}><option value="All">Tất cả nhóm công việc</option>{workGroups.map(item => <option key={item}>{item}</option>)}</select>}{module === "rankings" && <><select value={rankBand} onChange={event => setRankBand(event.target.value)}><option value="All">Tất cả thứ hạng</option><option value="top3">Top 3</option><option value="top10">Top 10</option><option value="top20">Top 20</option><option value="21-50">Top 21–50</option><option value="51-100">Top 51–100</option><option value="100+">Ngoài Top 100</option><option value="unknown">Chưa có thứ hạng</option></select><select value={rankSort} onChange={event => setRankSort(event.target.value)}><option value="position">Sắp xếp: Vị trí</option><option value="keyword">Sắp xếp: Keyword</option><option value="clicks">Sắp xếp: Clicks</option><option value="impressions">Sắp xếp: Impressions</option><option value="ctr">Sắp xếp: CTR</option></select><button className="secondary sort-direction" onClick={() => setRankDirection(current => current === "asc" ? "desc" : "asc")}>{rankDirection === "asc" ? "Tăng dần ↑" : "Giảm dần ↓"}</button></>}</div><div className="button-row"><input ref={fileRef} hidden type="file" accept=".csv" onChange={importCsv} /><button className="secondary" onClick={() => fileRef.current?.click()}>{module === "rankings" ? "Nhập CSV GSC" : "Nhập CSV"}</button><button className="secondary" onClick={exportCsv}>Xuất CSV</button></div></div>
     <div className="panel full"><SimpleTable rows={visibleRows} columns={meta.columns} showIndex={module === "rankings"} indexOffset={module === "rankings" ? (rankPage - 1) * rankPageSize : 0} actions={row => <><button className="table-action" onClick={() => setViewing(row)}>Xem</button><button className="table-action" onClick={() => { setEditing(row); setOpen(true); }}>Sửa</button><button className="table-action delete" onClick={() => remove(row)}>Xóa</button></>} /></div>
     {module === "rankings" && <div className="pagination"><span>Hiển thị {filtered.length ? (rankPage - 1) * rankPageSize + 1 : 0}–{Math.min(rankPage * rankPageSize, filtered.length)} / {filtered.length} keyword</span><div><button className="secondary" disabled={rankPage <= 1} onClick={() => setRankPage(page => Math.max(1, page - 1))}>← Trước</button><b>Trang {rankPage} / {rankTotalPages}</b><button className="secondary" disabled={rankPage >= rankTotalPages} onClick={() => setRankPage(page => Math.min(rankTotalPages, page + 1))}>Sau →</button></div></div>}
     {open && <EditorModal title={`${editing ? "Sửa" : "Thêm"} ${meta.title}`} module={module} row={editing || { id: uid(meta.prefix) }} personnel={personnel} defaultOwner={personnel.find(person => String(person.status || "Active") !== "Inactive")?.name?.toString() || ""} onSave={save} onClose={() => { setOpen(false); setEditing(null); }} />}
