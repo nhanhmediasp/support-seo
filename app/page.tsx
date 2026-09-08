@@ -8,6 +8,7 @@ type Field = { key: string; label: string; type?: "text" | "number" | "date" | "
 type ModuleKey = "tasks" | "content" | "calendar" | "onpage" | "audits" | "indexing" | "backlinks" | "entities" | "seeding" | "rankings" | "worklogs" | "changes" | "personnel";
 type SiteSettings = { name: string; domain: string; owner: string; email: string; timezone: string };
 type AppData = Record<ModuleKey, Row[]>;
+type ConfirmConfig = { eyebrow: string; title: string; description: string; confirmLabel: string; danger?: boolean; onConfirm: () => void };
 
 const today = () => new Date().toISOString().slice(0, 10);
 const uid = (prefix: string) => `${prefix}-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
@@ -196,6 +197,7 @@ export default function Home() {
   const [projectModalOpen, setProjectModalOpen] = useState(false);
   const [ready, setReady] = useState(false);
   const [toast, setToast] = useState("");
+  const [confirmDialog, setConfirmDialog] = useState<ConfirmConfig | null>(null);
   const [startupError, setStartupError] = useState("");
   const suppressCloudWriteRef = useRef(false);
   const dataRef = useRef(data);
@@ -392,6 +394,7 @@ export default function Home() {
     if (generated.length) { setData(current => ({ ...current, tasks: [...generated, ...current.tasks] })); addChange("Chạy tự động hóa", "Tasks", `Tạo ${generated.length} công việc`); }
     setToast(generated.length ? `Đã tạo ${generated.length} công việc cần xử lý` : "Không có cảnh báo mới");
   };
+  const toastTone = /thất bại|không thể|không đủ|không lưu|lỗi|hết hạn|chưa được/i.test(toast) ? "error" : /cảnh báo|không có/i.test(toast) ? "info" : "success";
 
   if (!ready || !authChecked) return <div className="loading"><div className="loading-card"><span className="loading-mark">A+</span><b>Đang xác thực tài khoản…</b><small>SEO Control Center</small></div></div>;
   if (startupError) return <div className="loading"><div className="loading-card startup-error"><span className="loading-mark">!</span><b>Không thể mở dữ liệu cloud</b><small>{startupError}</small><div><button className="secondary" onClick={() => window.location.reload()}>Thử lại</button><button className="danger-button" onClick={logout}>Đăng xuất</button></div></div></div>;
@@ -409,13 +412,18 @@ export default function Home() {
       <div className="content-wrap">
         {active === "dashboard" && <Dashboard data={data} settings={settings} setActive={navigate} runAutomation={runAutomation} />}
         {active === "reports" && <ReportWithGsc data={data} settings={settings} />}
-        {active === "settings" && <Settings data={data} setData={setData} settings={settings} setSettings={setSettings} notify={setToast} />}
+        {active === "settings" && <Settings data={data} setData={setData} settings={settings} setSettings={setSettings} notify={setToast} requestConfirm={setConfirmDialog} />}
         {moduleMeta[moduleKey] && <ModuleView module={moduleKey} rows={data[moduleKey]} setRows={rows => saveRows(moduleKey, rows)} onChange={addChange} siteUrl={settings.domain} personnel={data.personnel} />}
       </div>
     </main>
-    {toast && <div className="toast">✓ {toast}</div>}
+    {toast && <div className={`toast ${toastTone}`} role="status"><span className="toast-icon">{toastTone === "error" ? "!" : toastTone === "info" ? "i" : "✓"}</span><div><b>{toastTone === "error" ? "Có lỗi xảy ra" : toastTone === "info" ? "Thông tin" : "Thành công"}</b><p>{toast}</p></div><button type="button" onClick={() => setToast("")} aria-label="Đóng thông báo">×</button></div>}
     {projectModalOpen && <ProjectModal onClose={() => setProjectModalOpen(false)} onCreate={createProject} />}
+    {confirmDialog && <ConfirmDialog {...confirmDialog} onConfirm={() => { confirmDialog.onConfirm(); setConfirmDialog(null); }} onClose={() => setConfirmDialog(null)} />}
   </div>;
+}
+
+function ConfirmDialog({ eyebrow, title, description, confirmLabel, danger = false, onConfirm, onClose }: { eyebrow: string; title: string; description: string; confirmLabel: string; danger?: boolean; onConfirm: () => void; onClose: () => void }) {
+  return <div className="modal-backdrop confirm-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}><section className="confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title"><div className={danger ? "confirm-icon danger" : "confirm-icon"}>{danger ? "!" : "?"}</div><div className="confirm-copy"><p className="eyebrow">{eyebrow}</p><h2 id="confirm-title">{title}</h2><p>{description}</p></div><div className="confirm-actions"><button type="button" className="secondary" onClick={onClose}>Hủy</button><button type="button" className={danger ? "confirm-danger" : "primary"} onClick={onConfirm}>{confirmLabel}</button></div></section></div>;
 }
 
 function ProjectModal({ onClose, onCreate }: { onClose: () => void; onCreate: (name: string, domain: string) => void }) {
@@ -456,6 +464,7 @@ function ModuleView({ module, rows, setRows, onChange, siteUrl, personnel }: { m
   const [dateTo, setDateTo] = useState("");
   const [editing, setEditing] = useState<Row | null>(null);
   const [viewing, setViewing] = useState<Row | null>(null);
+  const [deleting, setDeleting] = useState<Row | null>(null);
   const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
   const [open, setOpen] = useState(false);
   const [gscStatus, setGscStatus] = useState("");
@@ -528,7 +537,8 @@ function ModuleView({ module, rows, setRows, onChange, siteUrl, personnel }: { m
     onChange(exists ? "Cập nhật" : "Tạo mới", `${meta.title}: ${normalized.id}`);
     setOpen(false); setEditing(null);
   };
-  const remove = (row: Row) => { if (!confirm(`Xóa bản ghi ${row.id}?`)) return; setRows(rows.filter(item => item.id !== row.id)); onChange("Xóa", `${meta.title}: ${row.id}`); };
+  const remove = (row: Row) => setDeleting(row);
+  const confirmRemove = () => { if (!deleting) return; setRows(rows.filter(item => item.id !== deleting.id)); onChange("Xóa", `${meta.title}: ${deleting.id}`); setDeleting(null); };
   const exportCsv = () => { const keys = fields[module].map(field => field.key); const content = "\uFEFF" + [keys.map(csvEscape).join(","), ...rows.map(row => keys.map(key => csvEscape(row[key])).join(","))].join("\n"); downloadFile(`${module}-${today()}.csv`, content, "text/csv;charset=utf-8"); };
   const importCsv = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]; if (!file) return;
@@ -580,6 +590,7 @@ function ModuleView({ module, rows, setRows, onChange, siteUrl, personnel }: { m
     {open && <EditorModal title={`${editing ? "Sửa" : "Thêm"} ${meta.title}`} module={module} row={editing || { id: uid(meta.prefix) }} personnel={personnel} defaultOwner={personnel.find(person => String(person.status || "Active") !== "Inactive")?.name?.toString() || ""} onSave={save} onClose={() => { setOpen(false); setEditing(null); }} />}
     {viewing && <DetailModal title={`Thông tin ${meta.title}`} module={module} row={viewing} onOpenGallery={(images, index) => setGallery({ images, index })} onClose={() => setViewing(null)} />}
     {gallery && <GalleryModal images={gallery.images} initialIndex={gallery.index} onClose={() => setGallery(null)} />}
+    {deleting && <ConfirmDialog eyebrow="XÁC NHẬN XÓA" title="Xóa bản ghi này?" description={`Bản ghi ${deleting.id} sẽ bị xóa khỏi ${meta.title}. Hành động này không thể hoàn tác.`} confirmLabel="Xóa bản ghi" danger onConfirm={confirmRemove} onClose={() => setDeleting(null)} />}
   </>;
 }
 
@@ -792,11 +803,11 @@ function Reports({ data, settings }: { data: AppData; settings: SiteSettings }) 
   return <><section className="page-heading print-hide"><div><p className="eyebrow">PERFORMANCE REPORTING</p><h2>Báo cáo KPI</h2><p className="muted">Tổng hợp dữ liệu vận hành và hiệu suất SEO.</p></div><div className="button-row"><button className="secondary" onClick={exportSummary}>Xuất CSV</button><button className="primary" onClick={() => window.print()}>In / Lưu PDF</button></div></section><div className="report-title"><h2>Báo cáo SEO — {settings.name}</h2><p>{today()} · {settings.domain}</p></div><div className="report-grid">{stats.map(([label, value]) => <div className="report-card" key={String(label)}><span>{label}</span><strong>{value}</strong></div>)}</div><div className="panel"><h3>Nhận định tự động</h3><p className="report-copy">Tỷ lệ hoàn thành công việc hiện ở mức {completion}%. Có {data.indexing.filter(row => row.status !== "Indexed").length} URL chưa index và {data.audits.filter(row => ["High", "Critical"].includes(String(row.severity)) && row.status !== "Done").length} lỗi ưu tiên cao cần xử lý. Tổng dữ liệu Search Performance ghi nhận {clicks.toLocaleString()} clicks trên {impressions.toLocaleString()} impressions.</p></div></>;
 }
 
-function Settings({ data, setData, settings, setSettings, notify }: { data: AppData; setData: (data: AppData) => void; settings: SiteSettings; setSettings: (settings: SiteSettings) => void; notify: (message: string) => void }) {
+function Settings({ data, setData, settings, setSettings, notify, requestConfirm }: { data: AppData; setData: (data: AppData) => void; settings: SiteSettings; setSettings: (settings: SiteSettings) => void; notify: (message: string) => void; requestConfirm: (config: ConfirmConfig) => void }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const backup = () => downloadFile(`seo-backup-${today()}.json`, JSON.stringify({ version: 2, settings, data }, null, 2), "application/json");
   const restore = async (event: ChangeEvent<HTMLInputElement>) => { const file = event.target.files?.[0]; if (!file) return; try { const parsed = JSON.parse(await file.text()); setData({ ...seedData, ...parsed.data }); if (parsed.settings) setSettings({ ...defaultSettings, ...parsed.settings }); notify("Khôi phục dữ liệu thành công"); } catch { notify("File backup không hợp lệ"); } event.target.value = ""; };
-  const reset = () => { if (!confirm("Xóa dữ liệu hiện tại và khôi phục dữ liệu mẫu ban đầu?")) return; setData(seedData); setSettings(defaultSettings); notify("Đã khôi phục workspace ban đầu"); };
+  const reset = () => requestConfirm({ eyebrow: "KHÔI PHỤC DỮ LIỆU", title: "Khôi phục workspace ban đầu?", description: "Toàn bộ dữ liệu hiện tại sẽ được thay bằng dữ liệu mẫu. Hãy tải file backup trước nếu cần giữ lại thông tin.", confirmLabel: "Khôi phục dữ liệu", danger: true, onConfirm: () => { setData(seedData); setSettings(defaultSettings); notify("Đã khôi phục workspace ban đầu"); } });
   const askNotification = async () => { if (!("Notification" in window)) return notify("Trình duyệt không hỗ trợ thông báo"); const result = await Notification.requestPermission(); notify(result === "granted" ? "Đã bật thông báo" : "Chưa được cấp quyền thông báo"); };
   return <><section className="page-heading"><div><p className="eyebrow">WORKSPACE CONFIGURATION</p><h2>Cài đặt & dữ liệu</h2><p className="muted">Quản lý thông tin website, thông báo và sao lưu dữ liệu.</p></div></section><div className="settings-grid"><div className="panel settings-form"><h3>Thông tin website</h3>{(["name", "domain", "owner", "email", "timezone"] as const).map(key => <label key={key}><span>{{ name: "Tên website", domain: "Domain", owner: "Người phụ trách", email: "Email báo cáo", timezone: "Múi giờ" }[key]}</span><input value={settings[key]} onChange={event => setSettings({ ...settings, [key]: event.target.value })} /></label>)}<p className="save-note">Mọi thay đổi được tự động lưu.</p></div><div className="panel"><h3>Tiện ích dữ liệu</h3><div className="settings-actions"><button className="secondary" onClick={backup}>Tải file backup JSON</button><button className="secondary" onClick={() => fileRef.current?.click()}>Khôi phục từ backup</button><input ref={fileRef} hidden type="file" accept=".json" onChange={restore} /><button className="secondary" onClick={askNotification}>Bật thông báo trình duyệt</button><button className="danger-button" onClick={reset}>Khôi phục dữ liệu ban đầu</button></div><div className="storage-status"><span>●</span><div><b>Local Workspace</b><small>{Object.values(data).reduce((sum, rows) => sum + rows.length, 0)} bản ghi · tự động lưu · có backup/restore</small></div></div><p className="integration-note">Khi cấu hình Supabase, dữ liệu có thể đồng bộ nhiều thiết bị và phân quyền người dùng. Bản local hiện tại vẫn dùng đầy đủ trên một trình duyệt.</p></div></div></>;
 }
