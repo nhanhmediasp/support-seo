@@ -456,6 +456,26 @@ function ModuleView({ module, rows, setRows, onChange, siteUrl, personnel }: { m
   const rankPageSize = 30;
   const rankTotalPages = module === "rankings" ? Math.max(1, Math.ceil(filtered.length / rankPageSize)) : 1;
   const visibleRows = module === "rankings" ? filtered.slice((rankPage - 1) * rankPageSize, rankPage * rankPageSize) : filtered;
+  useEffect(() => {
+    if (module !== "worklogs") return;
+    const timer = window.setTimeout(() => {
+      document.querySelectorAll(".panel.full table").forEach(table => {
+        const imageColumn = Array.from(table.querySelectorAll("thead th")).findIndex(header => (header.textContent || "").toLowerCase().includes("ảnh đính kèm"));
+        if (imageColumn < 0) return;
+        table.querySelectorAll("tbody tr").forEach(row => {
+          const cell = row.children[imageColumn];
+          if (!cell || cell.querySelector("img")) return;
+          const links = (cell.textContent || "").split(/\r?\n/).map(value => value.trim()).filter(value => value.startsWith("http"));
+          if (!links.length) return;
+          cell.textContent = "";
+          const wrapper = document.createElement("div"); wrapper.className = "attachment-previews";
+          links.forEach((link, index) => { const anchor = document.createElement("a"); anchor.href = link; anchor.target = "_blank"; anchor.rel = "noreferrer"; anchor.title = "Mở ảnh lớn"; const image = document.createElement("img"); image.src = link; image.alt = `Ảnh đính kèm ${index + 1}`; image.loading = "lazy"; anchor.appendChild(image); wrapper.appendChild(anchor); });
+          cell.appendChild(wrapper);
+        });
+      });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [module, visibleRows]);
   useEffect(() => { if (module === "rankings") setRankPage(1); }, [module, query, status, rankBand, rankSort, rankDirection, rows.length]);
   useEffect(() => { if (rankPage > rankTotalPages) setRankPage(rankTotalPages); }, [rankPage, rankTotalPages]);
   const statuses = Array.from(new Set(rows.map(row => String(row.status || "")).filter(Boolean)));
