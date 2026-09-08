@@ -53,6 +53,44 @@ grant execute on function public.can_access_site(uuid) to authenticated;
 grant execute on function public.is_site_owner(uuid) to authenticated;
 grant execute on function public.can_edit_site(uuid) to authenticated;
 
+-- Create projects through a security-definer function so the owner always
+-- comes from the authenticated JWT and can never be forged by the browser.
+create or replace function public.create_site_project(
+  p_name text,
+  p_domain text,
+  p_timezone text default 'Asia/Ho_Chi_Minh'
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  created_site public.sites;
+begin
+  if auth.uid() is null then
+    raise exception 'Authentication required' using errcode = '28000';
+  end if;
+  if nullif(trim(p_name), '') is null or nullif(trim(p_domain), '') is null then
+    raise exception 'Project name and domain are required' using errcode = '22023';
+  end if;
+
+  insert into public.sites (name, domain, timezone, owner_id)
+  values (trim(p_name), lower(rtrim(trim(p_domain), '/')), coalesce(nullif(trim(p_timezone), ''), 'Asia/Ho_Chi_Minh'), auth.uid())
+  returning * into created_site;
+
+  return jsonb_build_object(
+    'id', created_site.id,
+    'name', created_site.name,
+    'domain', created_site.domain,
+    'timezone', created_site.timezone,
+    'created_at', created_site.created_at
+  );
+end;
+$$;
+revoke all on function public.create_site_project(text, text, text) from public;
+grant execute on function public.create_site_project(text, text, text) to authenticated;
+
 -- Remove the ownerless demo row created by older versions. It otherwise blocks
 -- the real owner from creating the same domain because sites.domain is unique.
 delete from public.sites s

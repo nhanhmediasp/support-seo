@@ -290,7 +290,8 @@ export default function Home() {
         const storedProjects = parseStored<Project[]>(localStorage.getItem("air-sea-projects-v1"), []);
         const localProjects = storedProjects.length ? storedProjects : [{ id: "project-air-sea", name: defaultSettings.name, domain: defaultSettings.domain, timezone: defaultSettings.timezone }];
         for (const localProject of localProjects) {
-          const { data: createdProject, error: createProjectError } = await client.from("sites").insert({ name: localProject.name, domain: normalizeDomain(localProject.domain), timezone: localProject.timezone || defaultSettings.timezone, owner_id: user.id }).select("id,name,domain,timezone,created_at").single();
+          const { data: createdProjectData, error: createProjectError } = await client.rpc("create_site_project", { p_name: localProject.name, p_domain: normalizeDomain(localProject.domain), p_timezone: localProject.timezone || defaultSettings.timezone });
+          const createdProject = createdProjectData as (Project & { created_at: string }) | null;
           if (createProjectError) {
             setStartupError(`Không tạo được project cloud: ${createProjectError.message}`);
             setAuthChecked(true);
@@ -344,7 +345,8 @@ export default function Home() {
     if (supabaseConfigured && supabase) {
       const { data: userData, error: userError } = await supabase.auth.getUser();
       if (userError || !userData.user) { setToast("Phiên đăng nhập đã hết hạn"); return; }
-      const { data: inserted, error: insertError } = await supabase.from("sites").insert({ name: project.name, domain: project.domain, timezone: project.timezone, owner_id: userData.user.id }).select("id,name,domain,timezone,created_at").single();
+      const { data: insertedData, error: insertError } = await supabase.rpc("create_site_project", { p_name: project.name, p_domain: project.domain, p_timezone: project.timezone });
+      const inserted = insertedData as Project | null;
       if (insertError || !inserted) { setToast(`Không tạo được project cloud: ${insertError?.message || "Lỗi không xác định"}`); return; }
       project = inserted;
     }
