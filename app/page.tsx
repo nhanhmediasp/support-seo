@@ -353,7 +353,7 @@ export default function Home() {
     }
     setProjects(current => [...current, project]); setActiveProjectId(project.id); setProjectLoaded(false); setProjectMenuOpen(false); setProjectModalOpen(false); navigate("dashboard"); setToast(`Đã tạo project ${project.name}`);
   };
-  const logout = async () => { if (supabaseConfigured && supabase) await supabase.auth.signOut(); window.location.href = "/auth"; };
+  const logout = async () => { if (supabaseConfigured && supabase) await supabase.auth.signOut({ scope: "local" }); window.location.href = "/auth"; };
   const activeProject = projects.find(project => project.id === activeProjectId) || projects[0];
   const runAutomation = () => {
     const existing = new Set(data.tasks.map(row => String(row.title)));
@@ -537,7 +537,7 @@ function ModuleView({ module, rows, setRows, onChange, siteUrl, personnel }: { m
     <div className="panel full"><SimpleTable rows={visibleRows} columns={meta.columns} showIndex={module === "rankings"} indexOffset={module === "rankings" ? (rankPage - 1) * rankPageSize : 0} actions={row => <><button className="table-action" onClick={() => setViewing(row)}>Xem</button><button className="table-action" onClick={() => { setEditing(row); setOpen(true); }}>Sửa</button><button className="table-action delete" onClick={() => remove(row)}>Xóa</button></>} /></div>
     {module === "rankings" && <div className="pagination"><span>Hiển thị {filtered.length ? (rankPage - 1) * rankPageSize + 1 : 0}–{Math.min(rankPage * rankPageSize, filtered.length)} / {filtered.length} keyword</span><div><button className="secondary" disabled={rankPage <= 1} onClick={() => setRankPage(page => Math.max(1, page - 1))}>← Trước</button><b>Trang {rankPage} / {rankTotalPages}</b><button className="secondary" disabled={rankPage >= rankTotalPages} onClick={() => setRankPage(page => Math.min(rankTotalPages, page + 1))}>Sau →</button></div></div>}
     {open && <EditorModal title={`${editing ? "Sửa" : "Thêm"} ${meta.title}`} module={module} row={editing || { id: uid(meta.prefix) }} personnel={personnel} defaultOwner={personnel.find(person => String(person.status || "Active") !== "Inactive")?.name?.toString() || ""} onSave={save} onClose={() => { setOpen(false); setEditing(null); }} />}
-    {viewing && <DetailModal title={`Thông tin ${meta.title}`} module={module} row={viewing} onClose={() => setViewing(null)} />}
+    {viewing && <DetailModal title={`Thông tin ${meta.title}`} module={module} row={viewing} onOpenGallery={(images, index) => setGallery({ images, index })} onClose={() => setViewing(null)} />}
     {gallery && <GalleryModal images={gallery.images} initialIndex={gallery.index} onClose={() => setGallery(null)} />}
   </>;
 }
@@ -620,8 +620,23 @@ function EditorModal({ title, module, row, personnel, defaultOwner, onSave, onCl
   return <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !saving) onClose(); }}><form className="modal" onSubmit={submit}><div className="modal-head"><div><p className="eyebrow">DATA EDITOR</p><h2>{title}</h2></div><button type="button" disabled={saving} onClick={onClose}>×</button></div><div className="form-grid">{fields[module].map(field => <label key={field.key} className={field.type === "textarea" ? "wide" : ""}>{field.type === "checkbox" ? <span className="checkbox-label"><input type="checkbox" checked={Boolean(draft[field.key])} onChange={event => setDraft({ ...draft, [field.key]: event.target.checked })} /> {field.label}</span> : <><span>{field.label}{field.required && " *"}</span>{field.key === "owner" ? <select value={String(draft[field.key] ?? "")} onChange={event => setDraft({ ...draft, [field.key]: event.target.value })}><option value="">Chưa gán</option>{personnel.filter(person => String(person.status || "Active") !== "Inactive").map(person => <option key={person.id} value={String(person.name)}>{String(person.name)}{person.role ? ` — ${person.role}` : ""}</option>)}</select> : field.type === "select" ? <select required={field.required} value={String(draft[field.key] ?? field.options?.[0] ?? "")} onChange={event => setDraft({ ...draft, [field.key]: event.target.value })}>{field.options?.map(option => <option key={option}>{option}</option>)}</select> : field.type === "textarea" ? <textarea required={field.required} placeholder={field.key === "imageUrl" ? "Dán link ảnh Google Drive, Cloudinary... mỗi dòng một link" : undefined} value={String(draft[field.key] ?? "")} onChange={event => setDraft({ ...draft, [field.key]: event.target.value })} /> : <input required={field.required} type={field.type || "text"} step={field.type === "number" ? "any" : undefined} value={String(draft[field.key] ?? "")} onChange={event => setDraft({ ...draft, [field.key]: field.type === "number" ? Number(event.target.value) : event.target.value })} />}</>}</label>)}</div>{error && <p className="form-error">{error}</p>}<div className="modal-actions"><button type="button" className="secondary" disabled={saving} onClick={onClose}>Hủy</button><button className="primary" disabled={saving} type="submit">{saving ? "Đang tải ảnh..." : "Lưu dữ liệu"}</button></div></form></div>;
 }
 
-function DetailModal({ title, module, row, onClose }: { title: string; module: ModuleKey; row: Row; onClose: () => void }) {
+function DetailModal({ title, module, row, onOpenGallery, onClose }: { title: string; module: ModuleKey; row: Row; onOpenGallery: (images: string[], index: number) => void; onClose: () => void }) {
   const moduleFields = fields[module];
+  useEffect(() => {
+    const imageFieldIndex = moduleFields.findIndex(field => field.key === "imageUrl");
+    if (imageFieldIndex < 0) return;
+    const timer = window.setTimeout(() => {
+      const item = document.querySelectorAll(".detail-modal .detail-item")[imageFieldIndex];
+      const value = item?.querySelector("strong")?.textContent || "";
+      const links = value.split(/\r?\n/).map(link => link.trim()).filter(link => link.startsWith("http"));
+      if (!item || !links.length || item.querySelector("img")) return;
+      const strong = item.querySelector("strong"); if (strong) strong.remove();
+      const wrapper = document.createElement("div"); wrapper.className = "detail-attachment-album";
+      links.forEach((link, index) => { const button = document.createElement("button"); button.type = "button"; button.title = "Xem album ảnh"; button.addEventListener("click", () => onOpenGallery(links, index)); const image = document.createElement("img"); image.src = link; image.alt = `Ảnh đính kèm ${index + 1}`; image.loading = "lazy"; button.appendChild(image); wrapper.appendChild(button); });
+      item.appendChild(wrapper);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [moduleFields, onOpenGallery]);
   return <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}><section className="modal detail-modal"><div className="modal-head"><div><p className="eyebrow">VIEW DETAILS</p><h2>{title}</h2></div><button type="button" onClick={onClose}>×</button></div><div className="detail-grid">{moduleFields.map(field => <div className="detail-item" key={field.key}><span>{field.label}</span><strong>{typeof row[field.key] === "boolean" ? (row[field.key] ? "Có" : "Không") : String(row[field.key] ?? "—")}</strong></div>)}</div><div className="modal-actions"><button type="button" className="primary" onClick={onClose}>Đóng</button></div></section></div>;
 }
 
