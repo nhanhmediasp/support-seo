@@ -1,0 +1,14 @@
+.next/
+node_modules/
+.env.local
+.env*.local
+outputs/
+*.xlsx
+*.inspect.ndjson
+build_seo_workbook.mjs
+update_seo_by_month.mjs
+SEO-PLAN-CHECKLIST.md
+CLAUDE.md
+.npm-cache/
+.vercel/
+tsconfig.tsbuildinfo
