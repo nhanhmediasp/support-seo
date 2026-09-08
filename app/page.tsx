@@ -430,6 +430,7 @@ function ModuleView({ module, rows, setRows, onChange, siteUrl, personnel }: { m
   const [status, setStatus] = useState("All");
   const [editing, setEditing] = useState<Row | null>(null);
   const [viewing, setViewing] = useState<Row | null>(null);
+  const [gallery, setGallery] = useState<{ images: string[]; index: number } | null>(null);
   const [open, setOpen] = useState(false);
   const [gscStatus, setGscStatus] = useState("");
   const [rankBand, setRankBand] = useState("All");
@@ -469,7 +470,7 @@ function ModuleView({ module, rows, setRows, onChange, siteUrl, personnel }: { m
           if (!links.length) return;
           cell.textContent = "";
           const wrapper = document.createElement("div"); wrapper.className = "attachment-previews";
-          links.forEach((link, index) => { const anchor = document.createElement("a"); anchor.href = link; anchor.target = "_blank"; anchor.rel = "noreferrer"; anchor.title = "Mở ảnh lớn"; const image = document.createElement("img"); image.src = link; image.alt = `Ảnh đính kèm ${index + 1}`; image.loading = "lazy"; anchor.appendChild(image); wrapper.appendChild(anchor); });
+          links.forEach((link, index) => { const anchor = document.createElement("a"); anchor.href = link; anchor.title = "Xem album ảnh"; anchor.addEventListener("click", event => { event.preventDefault(); setGallery({ images: links, index }); }); const image = document.createElement("img"); image.src = link; image.alt = `Ảnh đính kèm ${index + 1}`; image.loading = "lazy"; anchor.appendChild(image); wrapper.appendChild(anchor); });
           cell.appendChild(wrapper);
         });
       });
@@ -537,6 +538,7 @@ function ModuleView({ module, rows, setRows, onChange, siteUrl, personnel }: { m
     {module === "rankings" && <div className="pagination"><span>Hiển thị {filtered.length ? (rankPage - 1) * rankPageSize + 1 : 0}–{Math.min(rankPage * rankPageSize, filtered.length)} / {filtered.length} keyword</span><div><button className="secondary" disabled={rankPage <= 1} onClick={() => setRankPage(page => Math.max(1, page - 1))}>← Trước</button><b>Trang {rankPage} / {rankTotalPages}</b><button className="secondary" disabled={rankPage >= rankTotalPages} onClick={() => setRankPage(page => Math.min(rankTotalPages, page + 1))}>Sau →</button></div></div>}
     {open && <EditorModal title={`${editing ? "Sửa" : "Thêm"} ${meta.title}`} module={module} row={editing || { id: uid(meta.prefix) }} personnel={personnel} defaultOwner={personnel.find(person => String(person.status || "Active") !== "Inactive")?.name?.toString() || ""} onSave={save} onClose={() => { setOpen(false); setEditing(null); }} />}
     {viewing && <DetailModal title={`Thông tin ${meta.title}`} module={module} row={viewing} onClose={() => setViewing(null)} />}
+    {gallery && <GalleryModal images={gallery.images} initialIndex={gallery.index} onClose={() => setGallery(null)} />}
   </>;
 }
 
@@ -621,6 +623,18 @@ function EditorModal({ title, module, row, personnel, defaultOwner, onSave, onCl
 function DetailModal({ title, module, row, onClose }: { title: string; module: ModuleKey; row: Row; onClose: () => void }) {
   const moduleFields = fields[module];
   return <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}><section className="modal detail-modal"><div className="modal-head"><div><p className="eyebrow">VIEW DETAILS</p><h2>{title}</h2></div><button type="button" onClick={onClose}>×</button></div><div className="detail-grid">{moduleFields.map(field => <div className="detail-item" key={field.key}><span>{field.label}</span><strong>{typeof row[field.key] === "boolean" ? (row[field.key] ? "Có" : "Không") : String(row[field.key] ?? "—")}</strong></div>)}</div><div className="modal-actions"><button type="button" className="primary" onClick={onClose}>Đóng</button></div></section></div>;
+}
+
+function GalleryModal({ images, initialIndex, onClose }: { images: string[]; initialIndex: number; onClose: () => void }) {
+  const [index, setIndex] = useState(initialIndex);
+  const previous = () => setIndex(current => (current - 1 + images.length) % images.length);
+  const next = () => setIndex(current => (current + 1) % images.length);
+  useEffect(() => {
+    const handleKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); else if (event.key === "ArrowLeft") previous(); else if (event.key === "ArrowRight") next(); };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [images.length, onClose]);
+  return <div className="gallery-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}><section className="gallery-modal"><div className="gallery-head"><div><strong>Ảnh đính kèm</strong><span>{index + 1} / {images.length}</span></div><button type="button" onClick={onClose} aria-label="Đóng">×</button></div><div className="gallery-stage">{images.length > 1 && <button className="gallery-nav previous" type="button" onClick={previous} aria-label="Ảnh trước">‹</button>}<img src={images[index]} alt={`Ảnh đính kèm ${index + 1}`} />{images.length > 1 && <button className="gallery-nav next" type="button" onClick={next} aria-label="Ảnh tiếp theo">›</button>}</div>{images.length > 1 && <div className="gallery-thumbnails">{images.map((image, imageIndex) => <button type="button" className={imageIndex === index ? "active" : ""} key={`${image}-${imageIndex}`} onClick={() => setIndex(imageIndex)}><img src={image} alt={`Xem ảnh ${imageIndex + 1}`} /></button>)}</div>}</section></div>;
 }
 
 function ReportWithGsc({ data, settings }: { data: AppData; settings: SiteSettings }) {
