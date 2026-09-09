@@ -70,6 +70,7 @@ const ensureUniqueIds = (source: AppData): AppData => {
       seen.add(id);
       let normalizedRow = module === "worklogs" && !row.status ? { ...row, status: Number(row.completion || 0) >= 100 ? "Đã xong" : Number(row.completion || 0) > 0 ? "Đang làm" : "Chưa làm" } : row;
       if (module === "tasks" && !normalizedRow.startDate && normalizedRow.due) normalizedRow = { ...normalizedRow, startDate: normalizedRow.due };
+      normalizedRow = applySelectDefaults(module, normalizedRow);
       return { ...normalizedRow, id };
     });
   });
@@ -135,6 +136,13 @@ const moduleDateKeys: Record<ModuleKey, string[]> = {
   changes: ["date"],
   personnel: ["updated"],
 };
+
+function applySelectDefaults(module: ModuleKey, row: Row): Row {
+  const defaults = Object.fromEntries(fields[module]
+    .filter(field => field.type === "select" && (row[field.key] == null || row[field.key] === "") && field.options?.[0])
+    .map(field => [field.key, field.options![0]]));
+  return { ...row, ...defaults };
+}
 
 const imageAttachmentFields = new Set(["imageUrl", "beforeImages", "afterImages"]);
 const imageLinks = (value: unknown) => String(value || "").split(/\r?\n/).map(link => link.trim()).filter(link => link.startsWith("http"));
@@ -637,7 +645,17 @@ function Badge({ value }: { value: string }) {
 }
 
 function EditorModal({ title, module, row, personnel, defaultOwner, onSave, onClose }: { title: string; module: ModuleKey; row: Row; personnel: Row[]; defaultOwner: string; onSave: (row: Row) => void | Promise<void>; onClose: () => void }) {
-  const [draft, setDraft] = useState<Row>(() => ({ ...row, ...(fields[module].some(field => field.key === "owner") && !row.owner && defaultOwner ? { owner: defaultOwner } : {}), ...(module === "tasks" && !row.startDate ? { startDate: today() } : {}), ...(module === "worklogs" && !row.date ? { date: today() } : {}), ...(module === "onpage" && !row.checked ? { checked: today() } : {}), ...(module === "personnel" && !row.updated ? { updated: today() } : {}) }));
+  const [draft, setDraft] = useState<Row>(() => ({
+    ...row,
+    ...Object.fromEntries(fields[module]
+      .filter(field => field.type === "select" && row[field.key] == null && field.options?.[0])
+      .map(field => [field.key, field.options?.[0]])),
+    ...(fields[module].some(field => field.key === "owner") && !row.owner && defaultOwner ? { owner: defaultOwner } : {}),
+    ...(module === "tasks" && !row.startDate ? { startDate: today() } : {}),
+    ...(module === "worklogs" && !row.date ? { date: today() } : {}),
+    ...(module === "onpage" && !row.checked ? { checked: today() } : {}),
+    ...(module === "personnel" && !row.updated ? { updated: today() } : {})
+  }));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const uploadPastedImageFile = async (imageFile: File, fieldKey: string) => {
