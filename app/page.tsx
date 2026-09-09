@@ -5,7 +5,7 @@ import { localModeAllowed, Project, supabase, supabaseConfigured } from "../lib/
 
 type Row = Record<string, string | number | boolean> & { id: string };
 type Field = { key: string; label: string; type?: "text" | "number" | "date" | "select" | "textarea" | "checkbox"; options?: string[]; required?: boolean };
-type ModuleKey = "tasks" | "content" | "calendar" | "onpage" | "audits" | "indexing" | "backlinks" | "entities" | "seeding" | "rankings" | "worklogs" | "changes" | "personnel";
+type ModuleKey = "tasks" | "content" | "calendar" | "onpage" | "audits" | "indexing" | "backlinks" | "entities" | "seeding" | "rankings" | "worklogs" | "changes" | "personnel" | "expenses";
 type SiteSettings = { name: string; domain: string; owner: string; email: string; timezone: string };
 type AppData = Record<ModuleKey, Row[]>;
 type ConfirmConfig = { eyebrow: string; title: string; description: string; confirmLabel: string; danger?: boolean; onConfirm: () => void };
@@ -54,11 +54,12 @@ const seedData: AppData = {
   worklogs: [{ id: "LOG-001", date: "2026-09-07", taskId: "TASK-001", group: "Technical", description: "Rà soát URL chưa index", start: "08:30", end: "10:00", hours: 1.5, result: "Đã cập nhật 12 URL", blockers: "", nextStep: "Kiểm tra canonical", document: "", completion: 70 }],
   changes: [{ id: "CHANGE-001", date: "2026-09-07 09:42", action: "Khởi tạo workspace", entity: "Hệ thống SEO", user: "SEO Freelancer", detail: "Tạo dữ liệu ban đầu" }],
   personnel: [{ id: "PERSON-001", name: "SEO Freelancer", role: "SEO Lead", email: "", phone: "", status: "Active", note: "" }],
+  expenses: [],
 };
 
 const emptyData = (): AppData => ({
   tasks: [], content: [], calendar: [], onpage: [], audits: [], indexing: [],
-  backlinks: [], entities: [], seeding: [], rankings: [], worklogs: [], changes: [], personnel: [],
+  backlinks: [], entities: [], seeding: [], rankings: [], worklogs: [], changes: [], personnel: [], expenses: [],
 });
 const ensureUniqueIds = (source: AppData): AppData => {
   const next = { ...source };
@@ -103,6 +104,7 @@ const fields: Record<ModuleKey, Field[]> = {
   worklogs: [{ key: "date", label: "Ngày", type: "date", required: true }, { key: "owner", label: "Người phụ trách" }, { key: "group", label: "Nhóm công việc", type: "select", options: ["Nghiên cứu từ khóa", "Content", "Technical SEO", "On-page", "Off-page", "Local SEO", "Entity SEO", "Indexing", "Social/Seeding", "Analytics & Reporting", "Khác"] }, { key: "description", label: "Nội dung thực hiện", type: "textarea", required: true }, { key: "result", label: "Kết quả", type: "textarea" }, { key: "status", label: "Trạng thái", type: "select", options: ["Chưa làm", "Đang làm", "Đã xong"] }, { key: "imageUrl", label: "Ảnh đính kèm", type: "textarea" }, { key: "document", label: "Link tài liệu" }],
   changes: [{ key: "date", label: "Thời gian" }, { key: "action", label: "Hành động" }, { key: "entity", label: "Đối tượng" }, { key: "user", label: "Người thực hiện" }, { key: "detail", label: "Chi tiết" }],
   personnel: [{ key: "name", label: "Họ tên", required: true }, { key: "role", label: "Vai trò" }, { key: "email", label: "Email" }, { key: "phone", label: "Số điện thoại" }, { key: "status", label: "Trạng thái", type: "select", options: ["Active", "Inactive"] }, { key: "updated", label: "Ngày cập nhật", type: "date" }, { key: "note", label: "Ghi chú", type: "textarea" }],
+  expenses: [{ key: "date", label: "Ngày phát sinh", type: "date", required: true }, { key: "category", label: "Loại chi phí", type: "select", options: ["Công cụ SEO", "Nội dung", "Backlink", "Quảng cáo", "Kỹ thuật", "Khác"] }, { key: "description", label: "Nội dung chi phí", required: true }, { key: "amount", label: "Số tiền", type: "number", required: true }, { key: "status", label: "Trạng thái", type: "select", options: ["Chưa thanh toán", "Đã thanh toán"] }, { key: "vendor", label: "Nhà cung cấp" }, { key: "owner", label: "Người phụ trách" }, { key: "note", label: "Ghi chú", type: "textarea" }],
 };
 
 const moduleMeta: Record<ModuleKey, { title: string; eyebrow: string; description: string; columns: string[]; prefix: string }> = {
@@ -119,6 +121,7 @@ const moduleMeta: Record<ModuleKey, { title: string; eyebrow: string; descriptio
   worklogs: { title: "Nhật ký làm việc", eyebrow: "DAILY EXECUTION", description: "Ghi nội dung thực hiện, kết quả, trạng thái và hình ảnh đính kèm.", columns: ["date", "owner", "group", "description", "status", "result", "imageUrl"], prefix: "LOG" },
   changes: { title: "Change Log", eyebrow: "AUDIT TRAIL", description: "Lịch sử các thay đổi quan trọng trong hệ thống.", columns: ["date", "action", "entity", "user", "detail"], prefix: "CHANGE" },
   personnel: { title: "Nhân sự", eyebrow: "TEAM MANAGEMENT", description: "Quản lý người phụ trách để chọn nhanh khi tạo task và nội dung.", columns: ["name", "role", "email", "phone", "status", "updated", "note"], prefix: "PERSON" },
+  expenses: { title: "Chi phí phát sinh", eyebrow: "EXPENSE TRACKING", description: "Theo dõi các khoản chi phí phát sinh trong quá trình triển khai SEO.", columns: ["date", "category", "description", "amount", "status", "vendor", "owner"], prefix: "EXPENSE" },
 };
 
 const moduleDateKeys: Record<ModuleKey, string[]> = {
@@ -135,6 +138,7 @@ const moduleDateKeys: Record<ModuleKey, string[]> = {
   worklogs: ["date"],
   changes: ["date"],
   personnel: ["updated"],
+  expenses: ["date"],
 };
 
 function applySelectDefaults(module: ModuleKey, row: Row): Row {
@@ -156,7 +160,7 @@ const normalizeFilterDate = (value: unknown) => {
 
 const navGroups: { label: string; items: [string, string][] }[] = [
   { label: "Tổng quan", items: [["dashboard", "Dashboard"]] },
-  { label: "Điều hành", items: [["tasks", "Công việc"], ["content", "Nội dung"], ["calendar", "Lịch đăng bài"], ["worklogs", "Nhật ký làm việc"], ["personnel", "Nhân sự"]] },
+  { label: "Điều hành", items: [["tasks", "Công việc"], ["content", "Nội dung"], ["calendar", "Lịch đăng bài"], ["worklogs", "Nhật ký làm việc"], ["personnel", "Nhân sự"], ["expenses", "Chi phí phát sinh"]] },
   { label: "SEO On-site", items: [["onpage", "On-page Checklist"], ["audits", "Technical Audit"], ["indexing", "Index Tracking"]] },
   { label: "SEO Off-site", items: [["backlinks", "Backlinks"], ["entities", "Entity SEO"], ["seeding", "Seeding"]] },
   { label: "Dữ liệu & báo cáo", items: [["rankings", "Keyword Rankings"], ["reports", "Báo cáo KPI"], ["changes", "Change Log"]] },
