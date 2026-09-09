@@ -14,7 +14,7 @@ const nextConfig = {
     }];
   },
   async rewrites() {
-    const pages = ["dashboard", "tasks", "content", "calendar", "onpage", "audits", "indexing", "backlinks", "entities", "seeding", "rankings", "worklogs", "personnel", "reports", "changes", "settings"];
+    const pages = ["dashboard", "tasks", "content", "calendar", "onpage", "audits", "indexing", "backlinks", "entities", "seeding", "rankings", "worklogs", "personnel", "expenses", "reports", "changes", "settings"];
     return pages.map((page) => ({ source: `/${page}`, destination: "/" }));
   },
 };
