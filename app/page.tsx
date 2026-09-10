@@ -9,6 +9,7 @@ type ModuleKey = "tasks" | "content" | "calendar" | "onpage" | "audits" | "index
 type SiteSettings = { name: string; domain: string; owner: string; email: string; timezone: string };
 type AppData = Record<ModuleKey, Row[]>;
 type ConfirmConfig = { eyebrow: string; title: string; description: string; confirmLabel: string; danger?: boolean; onConfirm: () => void };
+type RecordTarget = { module: ModuleKey; id: string };
 
 const today = () => new Date().toISOString().slice(0, 10);
 const uid = (prefix: string) => `${prefix}-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
@@ -96,13 +97,13 @@ const fields: Record<ModuleKey, Field[]> = {
   ],
   calendar: [{ key: "date", label: "Ngày đăng", type: "date", required: true }, { key: "title", label: "Tên bài", required: true }, { key: "keyword", label: "Keyword" }, { key: "url", label: "URL" }, { key: "channel", label: "Kênh", type: "select", options: ["Website", "Website + Social", "Facebook", "LinkedIn", "Google Business"] }, { key: "status", label: "Trạng thái", type: "select", options: ["Planned", "Review", "Scheduled", "Published"] }, { key: "owner", label: "Người phụ trách" }, { key: "approved", label: "Ngày duyệt", type: "date" }, { key: "campaign", label: "Chiến dịch/Ghi chú" }],
   onpage: [{ key: "url", label: "URL", required: true }, { key: "owner", label: "Người phụ trách" }, { key: "checked", label: "Ngày kiểm tra", type: "date" }, ...["https", "canonical", "indexable", "title", "meta", "h1", "headings", "intent", "internal", "external", "alt", "schema", "mobile"].map(key => ({ key, label: key.toUpperCase(), type: "checkbox" as const })), { key: "missing", label: "Việc còn thiếu", type: "textarea" }],
-  audits: [{ key: "url", label: "URL/Khu vực", required: true }, { key: "category", label: "Nhóm lỗi", type: "select", options: ["404", "5xx", "Redirect", "Canonical", "Noindex", "Sitemap", "Duplicate", "Thin content", "Orphan page", "Page speed", "Mobile", "Schema", "Image", "Plugin & Theme", "Mã độc"] }, { key: "issue", label: "Mô tả lỗi", required: true }, { key: "severity", label: "Mức độ", type: "select", options: ["Low", "Medium", "High", "Critical"] }, { key: "affected", label: "Số URL ảnh hưởng", type: "number" }, { key: "value", label: "Giá trị URL (1-10)", type: "number" }, { key: "resolution", label: "Cách xử lý", type: "textarea" }, { key: "owner", label: "Người xử lý" }, { key: "due", label: "Deadline", type: "date" }, { key: "status", label: "Trạng thái", type: "select", options: ["Open", "In progress", "Done", "Ignored"] }, { key: "found", label: "Ngày phát hiện", type: "date" }, { key: "completed", label: "Ngày hoàn tất", type: "date" }, { key: "beforeImages", label: "Ảnh trước xử lý", type: "textarea" }, { key: "afterImages", label: "Ảnh sau xử lý", type: "textarea" }, { key: "evidence", label: "Link bằng chứng bổ sung" }],
+  audits: [{ key: "url", label: "URL/Khu vực", required: true }, { key: "category", label: "Nhóm lỗi", type: "select", options: ["404", "5xx", "Redirect", "Canonical", "Noindex", "Sitemap", "Duplicate", "Thin content", "Orphan page", "Page speed", "Mobile", "Schema", "Image", "Plugin & Theme", "Mã độc", "Khác"] }, { key: "issue", label: "Mô tả lỗi", required: true }, { key: "severity", label: "Mức độ", type: "select", options: ["Low", "Medium", "High", "Critical"] }, { key: "affected", label: "Số URL ảnh hưởng", type: "number" }, { key: "value", label: "Giá trị URL (1-10)", type: "number" }, { key: "resolution", label: "Cách xử lý", type: "textarea" }, { key: "owner", label: "Người xử lý" }, { key: "due", label: "Deadline", type: "date" }, { key: "status", label: "Trạng thái", type: "select", options: ["Open", "In progress", "Done", "Ignored"] }, { key: "found", label: "Ngày phát hiện", type: "date" }, { key: "completed", label: "Ngày hoàn tất", type: "date" }, { key: "beforeImages", label: "Ảnh trước xử lý", type: "textarea" }, { key: "afterImages", label: "Ảnh sau xử lý", type: "textarea" }, { key: "evidence", label: "Link bằng chứng bổ sung" }],
   indexing: [{ key: "url", label: "URL", required: true }, { key: "owner", label: "Người phụ trách" }, { key: "type", label: "Loại URL", type: "select", options: ["Article", "Landing page", "Entity", "Backlink", "Service"] }, { key: "created", label: "Ngày tạo", type: "date" }, { key: "submitted", label: "Ngày submit", type: "date" }, { key: "checked", label: "Kiểm tra gần nhất", type: "date" }, { key: "status", label: "Trạng thái", type: "select", options: ["Indexed", "Not indexed", "Crawled - not indexed", "Discovered - not indexed", "Error", "Unknown"] }, { key: "reason", label: "Lý do" }, { key: "action", label: "Hành động tiếp theo" }, { key: "next", label: "Ngày kiểm tra lại", type: "date" }, { key: "priority", label: "Ưu tiên", type: "select", options: ["Low", "Medium", "High"] }],
   backlinks: [{ key: "domain", label: "Domain", required: true }, { key: "owner", label: "Người phụ trách" }, { key: "sourceUrl", label: "URL đặt link" }, { key: "targetUrl", label: "URL đích" }, { key: "anchor", label: "Anchor text" }, { key: "linkType", label: "Loại link", type: "select", options: ["Dofollow", "Nofollow", "Sponsored", "UGC"] }, { key: "topic", label: "Chủ đề website" }, { key: "authority", label: "Authority", type: "number" }, { key: "relevance", label: "Liên quan (0-25)", type: "number" }, { key: "trust", label: "Tin cậy (0-20)", type: "number" }, { key: "placement", label: "Vị trí (0-15)", type: "number" }, { key: "natural", label: "Anchor tự nhiên (0-15)", type: "number" }, { key: "traffic", label: "Traffic (0-15)", type: "number" }, { key: "stability", label: "Ổn định (0-10)", type: "number" }, { key: "status", label: "Trạng thái", type: "select", options: ["Prospect", "Contacted", "Accepted", "Live", "Lost", "Pending check", "Risk"] }, { key: "placed", label: "Ngày đặt", type: "date" }, { key: "checked", label: "Ngày kiểm tra", type: "date" }],
   entities: [{ key: "name", label: "Entity name", required: true }, { key: "owner", label: "Người phụ trách" }, { key: "type", label: "Loại", type: "select", options: ["Google Business Profile", "Social profile", "Directory", "Partner", "PR", "Expert profile", "Local citation"] }, { key: "platform", label: "Nền tảng" }, { key: "url", label: "URL" }, { key: "account", label: "Email/Tài khoản" }, { key: "nap", label: "NAP consistency", type: "select", options: ["Consistent", "Needs review", "Incorrect"] }, { key: "website", label: "Website" }, { key: "verified", label: "Xác minh", type: "select", options: ["Draft", "Pending", "Complete", "Verified"] }, { key: "indexed", label: "Index", type: "select", options: ["Indexed", "Not indexed", "Unknown"] }, { key: "updated", label: "Ngày cập nhật", type: "date" }, { key: "notes", label: "Ghi chú", type: "textarea" }],
   seeding: [{ key: "platform", label: "Nền tảng", required: true }, { key: "owner", label: "Người phụ trách" }, { key: "postUrl", label: "Link bài seeding" }, { key: "content", label: "Nội dung seeding", type: "textarea" }, { key: "account", label: "Tài khoản" }, { key: "posted", label: "Ngày đăng", type: "date" }, { key: "targetUrl", label: "Link trỏ về" }, { key: "status", label: "Trạng thái", type: "select", options: ["Draft", "Live", "Pending check", "Removed"] }, { key: "removed", label: "Đã bị xóa", type: "checkbox" }, { key: "checked", label: "Kiểm tra gần nhất", type: "date" }],
   rankings: [{ key: "keyword", label: "Keyword", required: true }, { key: "owner", label: "Người phụ trách" }, { key: "page", label: "Landing page" }, { key: "position", label: "Vị trí hiện tại", type: "number" }, { key: "previous", label: "Vị trí trước", type: "number" }, { key: "clicks", label: "Clicks", type: "number" }, { key: "impressions", label: "Impressions", type: "number" }, { key: "ctr", label: "CTR (%)", type: "number" }, { key: "date", label: "Ngày dữ liệu", type: "date" }],
-  worklogs: [{ key: "date", label: "Ngày", type: "date", required: true }, { key: "owner", label: "Người phụ trách" }, { key: "group", label: "Nhóm công việc", type: "select", options: ["Nghiên cứu từ khóa", "Content", "Technical SEO", "On-page", "Off-page", "Local SEO", "Entity SEO", "Indexing", "Social/Seeding", "Analytics & Reporting", "Khác"] }, { key: "description", label: "Nội dung thực hiện", type: "textarea", required: true }, { key: "result", label: "Kết quả", type: "textarea" }, { key: "status", label: "Trạng thái", type: "select", options: ["Chưa làm", "Đang làm", "Đã xong"] }, { key: "imageUrl", label: "Ảnh đính kèm", type: "textarea" }, { key: "document", label: "Link tài liệu" }],
+  worklogs: [{ key: "date", label: "Ngày", type: "date", required: true }, { key: "time", label: "Thời gian" }, { key: "title", label: "Tiêu đề" }, { key: "owner", label: "Người phụ trách" }, { key: "group", label: "Nhóm công việc", type: "select", options: ["Nghiên cứu từ khóa", "Content", "Technical SEO", "On-page", "Off-page", "Local SEO", "Entity SEO", "Indexing", "Social/Seeding", "Analytics & Reporting", "Khác"] }, { key: "description", label: "Nội dung thực hiện", type: "textarea", required: true }, { key: "result", label: "Kết quả", type: "textarea" }, { key: "status", label: "Trạng thái", type: "select", options: ["Chưa làm", "Đang làm", "Đã xong"] }, { key: "priority", label: "Mức độ", type: "select", options: ["Low", "Medium", "High", "Critical"] }, { key: "imageUrl", label: "Ảnh đính kèm", type: "textarea" }, { key: "document", label: "Link tài liệu" }],
   changes: [{ key: "date", label: "Thời gian" }, { key: "action", label: "Hành động" }, { key: "entity", label: "Đối tượng" }, { key: "user", label: "Người thực hiện" }, { key: "detail", label: "Chi tiết" }],
   personnel: [{ key: "name", label: "Họ tên", required: true }, { key: "role", label: "Vai trò" }, { key: "email", label: "Email" }, { key: "phone", label: "Số điện thoại" }, { key: "status", label: "Trạng thái", type: "select", options: ["Active", "Inactive"] }, { key: "updated", label: "Ngày cập nhật", type: "date" }, { key: "note", label: "Ghi chú", type: "textarea" }],
   expenses: [{ key: "date", label: "Ngày phát sinh", type: "date", required: true }, { key: "category", label: "Loại chi phí", type: "select", options: ["Công cụ SEO", "Nội dung", "Backlink", "Quảng cáo", "Kỹ thuật", "Khác"] }, { key: "description", label: "Nội dung chi phí", required: true }, { key: "amount", label: "Số tiền (VNĐ)", type: "number", required: true }, { key: "status", label: "Trạng thái", type: "select", options: ["Chưa thanh toán", "Đã thanh toán"] }, { key: "vendor", label: "Nhà cung cấp" }, { key: "owner", label: "Người phụ trách" }, { key: "note", label: "Ghi chú", type: "textarea" }],
@@ -119,7 +120,7 @@ const moduleMeta: Record<ModuleKey, { title: string; eyebrow: string; descriptio
   entities: { title: "Entity SEO", eyebrow: "BRAND ENTITY", description: "Theo dõi hồ sơ thương hiệu, NAP, xác minh và index.", columns: ["name", "owner", "type", "platform", "nap", "verified", "indexed", "updated"], prefix: "ENTITY" },
   seeding: { title: "Seeding", eyebrow: "DISTRIBUTION", description: "Theo dõi bài seeding, tài khoản, link đích và tình trạng tồn tại.", columns: ["platform", "owner", "postUrl", "targetUrl", "posted", "status", "removed", "checked"], prefix: "SEED" },
   rankings: { title: "Keyword Rankings", eyebrow: "SEARCH PERFORMANCE", description: "Quản lý vị trí, clicks, impressions và CTR.", columns: ["keyword", "owner", "page", "position", "previous", "clicks", "impressions", "ctr", "date"], prefix: "KW" },
-  worklogs: { title: "Nhật ký làm việc", eyebrow: "DAILY EXECUTION", description: "Ghi nội dung thực hiện, kết quả, trạng thái và hình ảnh đính kèm.", columns: ["date", "owner", "group", "description", "status", "result", "imageUrl"], prefix: "LOG" },
+  worklogs: { title: "Nhật ký làm việc", eyebrow: "DAILY EXECUTION", description: "Tự động ghi nhận công việc từ các mục SEO và liên kết về bản ghi gốc.", columns: ["date", "time", "title", "description", "status", "priority", "sourceLabel", "owner"], prefix: "LOG" },
   changes: { title: "Change Log", eyebrow: "AUDIT TRAIL", description: "Lịch sử các thay đổi quan trọng trong hệ thống.", columns: ["date", "action", "entity", "user", "detail"], prefix: "CHANGE" },
   personnel: { title: "Nhân sự", eyebrow: "TEAM MANAGEMENT", description: "Quản lý người phụ trách để chọn nhanh khi tạo task và nội dung.", columns: ["name", "role", "email", "phone", "status", "updated", "note"], prefix: "PERSON" },
   expenses: { title: "Chi phí phát sinh", eyebrow: "EXPENSE TRACKING", description: "Theo dõi các khoản chi phí phát sinh trong quá trình triển khai SEO.", columns: ["date", "category", "description", "amount", "status", "vendor", "owner"], prefix: "EXPENSE" },
@@ -190,6 +191,47 @@ function normalizeRow(module: ModuleKey, draft: Row): Row {
   return row;
 }
 
+const activitySourceModules = new Set<ModuleKey>(["tasks", "content", "calendar", "onpage", "audits", "indexing", "backlinks", "entities", "seeding"]);
+const sourceGroup: Partial<Record<ModuleKey, string>> = {
+  tasks: "Khác", content: "Content", calendar: "Content", onpage: "On-page", audits: "Technical SEO",
+  indexing: "Indexing", backlinks: "Off-page", entities: "Entity SEO", seeding: "Social/Seeding",
+};
+const firstText = (row: Row, keys: string[]) => keys.map(key => String(row[key] || "").trim()).find(Boolean) || "";
+const activityTitle = (module: ModuleKey, row: Row) => {
+  const value = firstText(row, ["title", "issue", "topic", "url", "domain", "name", "platform"]);
+  if (module === "audits") return `Technical SEO Audit: ${value || row.id}`;
+  if (module === "onpage") return `On-page: ${value || row.id}`;
+  if (module === "indexing") return `Index Tracking: ${value || row.id}`;
+  return value || `${moduleMeta[module].title}: ${row.id}`;
+};
+const activityDescription = (module: ModuleKey, row: Row) => {
+  const keysByModule: Partial<Record<ModuleKey, string[]>> = {
+    tasks: ["result", "url"], content: ["notes", "keyword", "url"], calendar: ["campaign", "keyword", "url"],
+    onpage: ["missing", "url"], audits: ["issue", "resolution", "url"], indexing: ["reason", "action", "url"],
+    backlinks: ["anchor", "targetUrl", "sourceUrl"], entities: ["notes", "platform", "url"], seeding: ["content", "targetUrl", "postUrl"],
+  };
+  return (keysByModule[module] || []).map(key => String(row[key] || "").trim()).filter(Boolean).filter((value, index, values) => values.indexOf(value) === index).join(" · ") || moduleMeta[module].description;
+};
+const activityPriority = (module: ModuleKey, row: Row) => {
+  if (row.priority || row.severity) return String(row.priority || row.severity);
+  if (module === "onpage") return Number(row.score || 0) < 60 ? "High" : Number(row.score || 0) < 100 ? "Medium" : "Low";
+  return "Medium";
+};
+const activityStatus = (module: ModuleKey, row: Row) => {
+  if (row.status) return String(row.status);
+  if (module === "onpage") return Number(row.score || 0) === 100 ? "Đã xong" : "Đang làm";
+  return "Chưa làm";
+};
+const createActivityLog = (module: ModuleKey, row: Row, owner: string): Row => {
+  const created = new Date();
+  return {
+    id: uid("LOG"), date: today(), time: created.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }),
+    title: activityTitle(module, row), description: activityDescription(module, row), status: activityStatus(module, row),
+    priority: activityPriority(module, row), owner: row.owner || owner, group: sourceGroup[module] || "Khác", result: row.result || "",
+    sourceModule: module, sourceId: row.id, sourceLabel: moduleMeta[module].title, automatic: true, createdAt: created.toISOString(),
+  };
+};
+
 function downloadFile(name: string, content: string, type: string) {
   const link = document.createElement("a");
   link.href = URL.createObjectURL(new Blob([content], { type }));
@@ -215,6 +257,7 @@ export default function Home() {
   const [ready, setReady] = useState(false);
   const [toast, setToast] = useState("");
   const [confirmDialog, setConfirmDialog] = useState<ConfirmConfig | null>(null);
+  const [recordTarget, setRecordTarget] = useState<RecordTarget | null>(null);
   const [startupError, setStartupError] = useState("");
   const suppressCloudWriteRef = useRef(false);
   const dataRef = useRef(data);
@@ -376,10 +419,27 @@ export default function Home() {
 
   const addChange = (action: string, entity: string, detail = "") => setData(current => ({ ...current, changes: [{ id: uid("CHANGE"), date: new Date().toLocaleString("vi-VN"), action, entity, user: settings.owner, detail }, ...current.changes].slice(0, 500) }));
   const saveRows = (module: ModuleKey, rows: Row[]) => setData(current => ({ ...current, [module]: rows }));
+  const syncActivityLog = (module: ModuleKey, row: Row, existed: boolean) => {
+    if (!activitySourceModules.has(module)) return;
+    setData(current => {
+      const logIndex = current.worklogs.findIndex(log => log.sourceModule === module && log.sourceId === row.id);
+      if (existed && logIndex < 0) return current;
+      const snapshot = createActivityLog(module, row, settings.owner);
+      if (logIndex < 0) return { ...current, worklogs: [snapshot, ...current.worklogs] };
+      const previous = current.worklogs[logIndex];
+      const updated = { ...previous, ...snapshot, id: previous.id, date: previous.date, time: previous.time, createdAt: previous.createdAt };
+      return { ...current, worklogs: current.worklogs.map((log, index) => index === logIndex ? updated : log) };
+    });
+  };
   const navigate = (page: string) => {
     const nextPath = pagePaths[page] || "/";
     if (window.location.pathname !== nextPath) window.history.pushState({}, "", nextPath);
     setActive(page);
+  };
+  const openSourceRecord = (module: ModuleKey, id: string) => {
+    if (!activitySourceModules.has(module) || !data[module].some(row => row.id === id)) { setToast("Bản ghi gốc không còn tồn tại"); return; }
+    setRecordTarget({ module, id });
+    navigate(module);
   };
   const switchProject = (id: string) => { setActiveProjectId(id); setProjectLoaded(false); navigate("dashboard"); };
   const createProject = async (name: string, domain: string) => {
@@ -430,7 +490,7 @@ export default function Home() {
         {active === "dashboard" && <Dashboard data={data} settings={settings} setActive={navigate} runAutomation={runAutomation} />}
         {active === "reports" && <ReportWithGsc data={data} settings={settings} />}
         {active === "settings" && <Settings data={data} setData={setData} settings={settings} setSettings={setSettings} notify={setToast} requestConfirm={setConfirmDialog} />}
-        {moduleMeta[moduleKey] && <ModuleView module={moduleKey} rows={data[moduleKey]} setRows={rows => saveRows(moduleKey, rows)} onChange={addChange} siteUrl={settings.domain} personnel={data.personnel} />}
+        {moduleMeta[moduleKey] && <ModuleView module={moduleKey} rows={data[moduleKey]} setRows={rows => saveRows(moduleKey, rows)} onChange={addChange} onRecordSaved={syncActivityLog} onOpenSource={openSourceRecord} focusRecordId={recordTarget?.module === moduleKey ? recordTarget.id : ""} onFocusHandled={() => setRecordTarget(null)} siteUrl={settings.domain} personnel={data.personnel} />}
       </div>
     </main>
     {toast && <div className={`toast ${toastTone}`} role="status"><span className="toast-icon">{toastTone === "error" ? "!" : toastTone === "info" ? "i" : "✓"}</span><div><b>{toastTone === "error" ? "Có lỗi xảy ra" : toastTone === "info" ? "Thông tin" : "Thành công"}</b><p>{toast}</p></div><button type="button" onClick={() => setToast("")} aria-label="Đóng thông báo">×</button></div>}
@@ -472,7 +532,7 @@ function Dashboard({ data, settings, setActive, runAutomation }: { data: AppData
 
 function Signal({ label, value, danger }: { label: string; value: number; danger?: boolean }) { return <div className="signal"><span className={danger ? "signal-dot danger" : "signal-dot"} /><div><b>{label}</b><small>{danger && value ? "Cần ưu tiên" : "Đang theo dõi"}</small></div><strong>{value}</strong></div>; }
 
-function ModuleView({ module, rows, setRows, onChange, siteUrl, personnel }: { module: ModuleKey; rows: Row[]; setRows: (rows: Row[]) => void; onChange: (action: string, entity: string, detail?: string) => void; siteUrl: string; personnel: Row[] }) {
+function ModuleView({ module, rows, setRows, onChange, onRecordSaved, onOpenSource, focusRecordId, onFocusHandled, siteUrl, personnel }: { module: ModuleKey; rows: Row[]; setRows: (rows: Row[]) => void; onChange: (action: string, entity: string, detail?: string) => void; onRecordSaved: (module: ModuleKey, row: Row, existed: boolean) => void; onOpenSource: (module: ModuleKey, id: string) => void; focusRecordId: string; onFocusHandled: () => void; siteUrl: string; personnel: Row[] }) {
   const meta = moduleMeta[module];
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("All");
@@ -492,6 +552,12 @@ function ModuleView({ module, rows, setRows, onChange, siteUrl, personnel }: { m
   const [rankPage, setRankPage] = useState(1);
   const fileRef = useRef<HTMLInputElement>(null);
   const dateKeys = moduleDateKeys[module];
+  useEffect(() => {
+    if (!focusRecordId) return;
+    const target = rows.find(row => row.id === focusRecordId);
+    if (target) setViewing(target);
+    onFocusHandled();
+  }, [focusRecordId, onFocusHandled, rows]);
   const applyDatePreset = (preset: string) => {
     const end = new Date();
     const format = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -563,6 +629,7 @@ function ModuleView({ module, rows, setRows, onChange, siteUrl, personnel }: { m
     }
     const exists = rows.some(row => row.id === normalized.id);
     setRows(exists ? rows.map(row => row.id === normalized.id ? normalized : row) : [normalized, ...rows]);
+    onRecordSaved(module, normalized, exists);
     onChange(exists ? "Cập nhật" : "Tạo mới", `${meta.title}: ${normalized.id}`);
     setOpen(false); setEditing(null);
   };
@@ -614,7 +681,7 @@ function ModuleView({ module, rows, setRows, onChange, siteUrl, personnel }: { m
     <section className="page-heading"><div><p className="eyebrow">{meta.eyebrow}</p><h2>{meta.title}</h2><p className="muted">{meta.description}</p>{module === "rankings" && gscStatus && <p className="sync-status">{gscStatus}</p>}</div><div className="button-row">{module === "rankings" && <><button className="secondary" onClick={() => { window.location.href = "/api/search-console/auth?returnTo=/rankings"; }}>Kết nối GSC</button><button className="secondary" onClick={syncSearchConsole}>↻ Đồng bộ GSC</button></>}<button className="primary" onClick={() => { setEditing(null); setOpen(true); }}>＋ Thêm bản ghi</button></div></section>
     {dateKeys.length > 0 && <DateFilterBar preset={datePreset} from={dateFrom} to={dateTo} onPreset={applyDatePreset} onFrom={value => { setDatePreset("custom"); setDateFrom(value); }} onTo={value => { setDatePreset("custom"); setDateTo(value); }} />}
     <div className="toolbar"><div className="toolbar-left"><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Tìm kiếm dữ liệu…" />{statuses.length > 0 && <select value={status} onChange={event => setStatus(event.target.value)}><option>All</option>{statuses.map(item => <option key={item}>{item}</option>)}</select>}{module === "worklogs" && workGroups.length > 0 && <select value={workGroup} onChange={event => setWorkGroup(event.target.value)}><option value="All">Tất cả nhóm công việc</option>{workGroups.map(item => <option key={item}>{item}</option>)}</select>}{module === "rankings" && <><select value={rankBand} onChange={event => setRankBand(event.target.value)}><option value="All">Tất cả thứ hạng</option><option value="top3">Top 3</option><option value="top10">Top 10</option><option value="top20">Top 20</option><option value="21-50">Top 21–50</option><option value="51-100">Top 51–100</option><option value="100+">Ngoài Top 100</option><option value="unknown">Chưa có thứ hạng</option></select><select value={rankSort} onChange={event => setRankSort(event.target.value)}><option value="position">Sắp xếp: Vị trí</option><option value="keyword">Sắp xếp: Keyword</option><option value="clicks">Sắp xếp: Clicks</option><option value="impressions">Sắp xếp: Impressions</option><option value="ctr">Sắp xếp: CTR</option></select><button className="secondary sort-direction" onClick={() => setRankDirection(current => current === "asc" ? "desc" : "asc")}>{rankDirection === "asc" ? "Tăng dần ↑" : "Giảm dần ↓"}</button></>}</div><div className="button-row"><input ref={fileRef} hidden type="file" accept=".csv" onChange={importCsv} /><button className="secondary" onClick={() => fileRef.current?.click()}>{module === "rankings" ? "Nhập CSV GSC" : "Nhập CSV"}</button><button className="secondary" onClick={exportCsv}>Xuất CSV</button></div></div>
-    <div className="panel full"><SimpleTable rows={visibleRows} columns={meta.columns} showIndex={module === "rankings"} indexOffset={module === "rankings" ? (rankPage - 1) * rankPageSize : 0} actions={row => <><button className="table-action" onClick={() => setViewing(row)}>Xem</button><button className="table-action" onClick={() => { setEditing(row); setOpen(true); }}>Sửa</button><button className="table-action delete" onClick={() => remove(row)}>Xóa</button></>} /></div>
+    <div className="panel full"><SimpleTable rows={visibleRows} columns={meta.columns} showIndex={module === "rankings"} indexOffset={module === "rankings" ? (rankPage - 1) * rankPageSize : 0} actions={row => <>{module === "worklogs" && row.sourceModule && row.sourceId && <button className="table-action source-link" onClick={() => onOpenSource(String(row.sourceModule) as ModuleKey, String(row.sourceId))}>Xem công việc →</button>}<button className="table-action" onClick={() => setViewing(row)}>Chi tiết</button><button className="table-action" onClick={() => { setEditing(row); setOpen(true); }}>Sửa</button><button className="table-action delete" onClick={() => remove(row)}>Xóa</button></>} /></div>
     {module === "rankings" && <div className="pagination"><span>Hiển thị {filtered.length ? (rankPage - 1) * rankPageSize + 1 : 0}–{Math.min(rankPage * rankPageSize, filtered.length)} / {filtered.length} keyword</span><div><button className="secondary" disabled={rankPage <= 1} onClick={() => setRankPage(page => Math.max(1, page - 1))}>← Trước</button><b>Trang {rankPage} / {rankTotalPages}</b><button className="secondary" disabled={rankPage >= rankTotalPages} onClick={() => setRankPage(page => Math.min(rankTotalPages, page + 1))}>Sau →</button></div></div>}
     {open && <EditorModal title={`${editing ? "Sửa" : "Thêm"} ${meta.title}`} module={module} row={editing || { id: uid(meta.prefix) }} personnel={personnel} defaultOwner={personnel.find(person => String(person.status || "Active") !== "Inactive")?.name?.toString() || ""} onSave={save} onClose={() => { setOpen(false); setEditing(null); }} />}
     {viewing && <DetailModal title={`Thông tin ${meta.title}`} module={module} row={viewing} onOpenGallery={(images, index, title) => setGallery({ images, index, title })} onClose={() => setViewing(null)} />}
@@ -629,7 +696,7 @@ function DateFilterBar({ preset, from, to, onPreset, onFrom, onTo }: { preset: s
 }
 
 function SimpleTable({ rows, columns, actions, showIndex = false, indexOffset = 0 }: { rows: Row[]; columns: string[]; actions?: (row: Row) => ReactNode; showIndex?: boolean; indexOffset?: number }) {
-  const labels: Record<string, string> = Object.values(fields).flat().reduce((map, field) => ({ ...map, [field.key]: field.label }), {});
+  const labels: Record<string, string> = { sourceLabel: "Nguồn", ...Object.values(fields).flat().reduce((map, field) => ({ ...map, [field.key]: field.label }), {}) };
   rows = rows.map(row => row.amount == null ? row : { ...row, amount: formatCurrency(row.amount) });
   return <div className="table-wrap"><table><thead><tr>{showIndex && <th>STT</th>}{columns.map(column => <th key={column}>{labels[column] || column}</th>)}{actions && <th>Thao tác</th>}</tr></thead><tbody>{rows.length ? rows.map((row, rowIndex) => <tr key={row.id}>{showIndex && <td className="row-number">{indexOffset + rowIndex + 1}</td>}{columns.map(column => <td key={column}>{typeof row[column] === "boolean" ? <span className={row[column] ? "check yes" : "check no"}>{row[column] ? "✓" : "×"}</span> : ["status", "priority", "severity", "verified", "indexed"].includes(column) ? <Badge value={String(row[column] ?? "")} /> : column === "score" || column === "impact" ? <strong className="score-value">{String(row[column] ?? 0)}</strong> : <span className={column === columns[0] ? "cell-main" : ""}>{String(row[column] ?? "—")}</span>}</td>)}{actions && <td><div className="row-actions">{actions(row)}</div></td>}</tr>) : <tr><td colSpan={columns.length + (showIndex ? 1 : 0) + (actions ? 1 : 0)}><div className="empty">Chưa có dữ liệu. Bấm “Thêm bản ghi” hoặc nhập CSV để bắt đầu.</div></td></tr>}</tbody></table></div>;
 }
