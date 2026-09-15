@@ -84,7 +84,7 @@ const ensureUniqueIds = (source: AppData): AppData => {
     const occurredAt = String(log.occurredAt || [log.date, log.time].filter(Boolean).join("T"));
     return {
       ...log,
-      ...(occurredAt ? { occurredAt } : {}),
+      ...(occurredAt ? { occurredAt, occurredDisplay: formatOccurredAt(occurredAt) } : {}),
       ...(sourceRow && !log.completedAt ? { completedAt: activityCompletionValue(sourceModule, sourceRow) } : {}),
     };
   });
@@ -131,7 +131,7 @@ const moduleMeta: Record<ModuleKey, { title: string; eyebrow: string; descriptio
   entities: { title: "Entity SEO", eyebrow: "BRAND ENTITY", description: "Theo dõi hồ sơ thương hiệu, NAP, xác minh và index.", columns: ["name", "owner", "type", "platform", "nap", "verified", "indexed", "updated"], prefix: "ENTITY" },
   seeding: { title: "Seeding", eyebrow: "DISTRIBUTION", description: "Theo dõi bài seeding, tài khoản, link đích và tình trạng tồn tại.", columns: ["platform", "owner", "postUrl", "targetUrl", "posted", "status", "removed", "checked"], prefix: "SEED" },
   rankings: { title: "Keyword Rankings", eyebrow: "SEARCH PERFORMANCE", description: "Quản lý vị trí, clicks, impressions và CTR.", columns: ["keyword", "owner", "page", "position", "previous", "clicks", "impressions", "ctr", "date"], prefix: "KW" },
-  worklogs: { title: "Nhật ký làm việc", eyebrow: "DAILY EXECUTION", description: "Tự động ghi nhận công việc từ các mục SEO và liên kết về bản ghi gốc.", columns: ["occurredAt", "completedAt", "title", "description", "status", "priority", "sourceLabel", "owner"], prefix: "LOG" },
+  worklogs: { title: "Nhật ký làm việc", eyebrow: "DAILY EXECUTION", description: "Tự động ghi nhận công việc từ các mục SEO và liên kết về bản ghi gốc.", columns: ["occurredDisplay", "completedAt", "title", "description", "status", "priority", "sourceLabel", "owner"], prefix: "LOG" },
   changes: { title: "Change Log", eyebrow: "AUDIT TRAIL", description: "Lịch sử các thay đổi quan trọng trong hệ thống.", columns: ["date", "action", "entity", "user", "detail"], prefix: "CHANGE" },
   personnel: { title: "Nhân sự", eyebrow: "TEAM MANAGEMENT", description: "Quản lý người phụ trách để chọn nhanh khi tạo task và nội dung.", columns: ["name", "role", "email", "phone", "status", "updated", "note"], prefix: "PERSON" },
   expenses: { title: "Chi phí phát sinh", eyebrow: "EXPENSE TRACKING", description: "Theo dõi các khoản chi phí phát sinh trong quá trình triển khai SEO.", columns: ["date", "category", "description", "amount", "status", "vendor", "owner"], prefix: "EXPENSE" },
@@ -189,8 +189,10 @@ function normalizeRow(module: ModuleKey, draft: Row): Row {
     if (occurredAt) {
       row.date = occurredAt.slice(0, 10);
       row.time = occurredAt.slice(11, 16);
+      row.occurredDisplay = formatOccurredAt(occurredAt);
     } else if (row.date) {
       row.occurredAt = [row.date, row.time].filter(Boolean).join("T");
+      row.occurredDisplay = formatOccurredAt(String(row.occurredAt));
     }
   }
   if (module === "content") {
@@ -266,11 +268,16 @@ const formatDateTime = (value: unknown) => {
   if (/^\d{4}-\d{2}-\d{2}$/.test(String(value))) return date.toLocaleDateString("vi-VN");
   return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString("vi-VN", { dateStyle: "short", timeStyle: "short" });
 };
+const formatOccurredAt = (value: string) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return `${date.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit", hour12: false })}\n${date.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" })}`;
+};
 const createActivityLog = (module: ModuleKey, row: Row, owner: string, previous?: Row): Row => {
   const created = new Date();
   const completedAt = activityIsComplete(module, row) ? String(previous?.completedAt || created.toISOString()) : "";
   return {
-    id: uid("LOG"), date: today(), time: created.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }), occurredAt: created.toISOString(),
+    id: uid("LOG"), date: today(), time: created.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }), occurredAt: created.toISOString(), occurredDisplay: formatOccurredAt(created.toISOString()),
     title: activityTitle(module, row), description: activityDescription(module, row), status: activityStatus(module, row),
     priority: activityPriority(module, row), owner: row.owner || owner, group: sourceGroup[module] || "Khác", result: row.result || "",
     sourceModule: module, sourceId: row.id, sourceLabel: moduleMeta[module].title, automatic: true, createdAt: created.toISOString(),
@@ -742,7 +749,7 @@ function DateFilterBar({ preset, from, to, onPreset, onFrom, onTo }: { preset: s
 }
 
 function SimpleTable({ rows, columns, actions, showIndex = false, indexOffset = 0 }: { rows: Row[]; columns: string[]; actions?: (row: Row) => ReactNode; showIndex?: boolean; indexOffset?: number }) {
-  const labels: Record<string, string> = { sourceLabel: "Nguồn", ...Object.values(fields).flat().reduce((map, field) => ({ ...map, [field.key]: field.label }), {}) };
+  const labels: Record<string, string> = { sourceLabel: "Nguồn", occurredDisplay: "Ngày phát sinh", ...Object.values(fields).flat().reduce((map, field) => ({ ...map, [field.key]: field.label }), {}) };
   rows = rows.map(row => row.amount == null ? row : { ...row, amount: formatCurrency(row.amount) });
   return <div className="table-wrap"><table><thead><tr>{showIndex && <th>STT</th>}{columns.map(column => <th key={column}>{labels[column] || column}</th>)}{actions && <th>Thao tác</th>}</tr></thead><tbody>{rows.length ? rows.map((row, rowIndex) => <tr key={row.id}>{showIndex && <td className="row-number">{indexOffset + rowIndex + 1}</td>}{columns.map(column => <td key={column}>{typeof row[column] === "boolean" ? <span className={row[column] ? "check yes" : "check no"}>{row[column] ? "✓" : "×"}</span> : ["status", "priority", "severity", "verified", "indexed"].includes(column) ? <Badge value={String(row[column] ?? "")} /> : column === "score" || column === "impact" ? <strong className="score-value">{String(row[column] ?? 0)}</strong> : <span className={column === columns[0] ? "cell-main" : ""}>{column === "completedAt" ? formatDateTime(row[column]) : String(row[column] ?? "—")}</span>}</td>)}{actions && <td><div className="row-actions">{actions(row)}</div></td>}</tr>) : <tr><td colSpan={columns.length + (showIndex ? 1 : 0) + (actions ? 1 : 0)}><div className="empty">Chưa có dữ liệu. Bấm “Thêm bản ghi” hoặc nhập CSV để bắt đầu.</div></td></tr>}</tbody></table></div>;
 }
