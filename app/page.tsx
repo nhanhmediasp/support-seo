@@ -77,6 +77,17 @@ const ensureUniqueIds = (source: AppData): AppData => {
       return { ...normalizedRow, id };
     });
   });
+  next.worklogs = next.worklogs.map(log => {
+    const sourceModule = String(log.sourceModule || (log.taskId ? "tasks" : "")) as ModuleKey;
+    const sourceId = String(log.sourceId || log.taskId || "");
+    const sourceRow = activitySourceModules.has(sourceModule) ? next[sourceModule].find(row => String(row.id) === sourceId) : undefined;
+    const occurredAt = String(log.occurredAt || [log.date, log.time].filter(Boolean).join("T"));
+    return {
+      ...log,
+      ...(occurredAt ? { occurredAt } : {}),
+      ...(sourceRow && !log.completedAt ? { completedAt: activityCompletionValue(sourceModule, sourceRow) } : {}),
+    };
+  });
   return next;
 };
 
@@ -103,7 +114,7 @@ const fields: Record<ModuleKey, Field[]> = {
   entities: [{ key: "name", label: "Entity name", required: true }, { key: "owner", label: "Người phụ trách" }, { key: "type", label: "Loại", type: "select", options: ["Google Business Profile", "Social profile", "Directory", "Partner", "PR", "Expert profile", "Local citation"] }, { key: "platform", label: "Nền tảng" }, { key: "url", label: "URL" }, { key: "account", label: "Email/Tài khoản" }, { key: "nap", label: "NAP consistency", type: "select", options: ["Consistent", "Needs review", "Incorrect"] }, { key: "website", label: "Website" }, { key: "verified", label: "Xác minh", type: "select", options: ["Draft", "Pending", "Complete", "Verified"] }, { key: "indexed", label: "Index", type: "select", options: ["Indexed", "Not indexed", "Unknown"] }, { key: "updated", label: "Ngày cập nhật", type: "date" }, { key: "notes", label: "Ghi chú", type: "textarea" }],
   seeding: [{ key: "platform", label: "Nền tảng", required: true }, { key: "owner", label: "Người phụ trách" }, { key: "postUrl", label: "Link bài seeding" }, { key: "content", label: "Nội dung seeding", type: "textarea" }, { key: "account", label: "Tài khoản" }, { key: "posted", label: "Ngày đăng", type: "date" }, { key: "targetUrl", label: "Link trỏ về" }, { key: "status", label: "Trạng thái", type: "select", options: ["Draft", "Live", "Pending check", "Removed"] }, { key: "removed", label: "Đã bị xóa", type: "checkbox" }, { key: "checked", label: "Kiểm tra gần nhất", type: "date" }],
   rankings: [{ key: "keyword", label: "Keyword", required: true }, { key: "owner", label: "Người phụ trách" }, { key: "page", label: "Landing page" }, { key: "position", label: "Vị trí hiện tại", type: "number" }, { key: "previous", label: "Vị trí trước", type: "number" }, { key: "clicks", label: "Clicks", type: "number" }, { key: "impressions", label: "Impressions", type: "number" }, { key: "ctr", label: "CTR (%)", type: "number" }, { key: "date", label: "Ngày dữ liệu", type: "date" }],
-  worklogs: [{ key: "date", label: "Ngày phát sinh", type: "date", required: true }, { key: "time", label: "Thời gian phát sinh" }, { key: "completedAt", label: "Thời gian hoàn thành" }, { key: "title", label: "Tiêu đề" }, { key: "owner", label: "Người phụ trách" }, { key: "group", label: "Nhóm công việc", type: "select", options: ["Nghiên cứu từ khóa", "Content", "Technical SEO", "On-page", "Off-page", "Local SEO", "Entity SEO", "Indexing", "Social/Seeding", "Analytics & Reporting", "Khác"] }, { key: "description", label: "Nội dung thực hiện", type: "textarea", required: true }, { key: "result", label: "Kết quả", type: "textarea" }, { key: "status", label: "Trạng thái", type: "select", options: ["Chưa làm", "Đang làm", "Đã xong"] }, { key: "priority", label: "Mức độ", type: "select", options: ["Low", "Medium", "High", "Critical"] }, { key: "imageUrl", label: "Ảnh đính kèm", type: "textarea" }, { key: "document", label: "Link tài liệu" }],
+  worklogs: [{ key: "occurredAt", label: "Ngày phát sinh", type: "text", required: true }, { key: "completedAt", label: "Thời gian hoàn thành" }, { key: "title", label: "Tiêu đề" }, { key: "owner", label: "Người phụ trách" }, { key: "group", label: "Nhóm công việc", type: "select", options: ["Nghiên cứu từ khóa", "Content", "Technical SEO", "On-page", "Off-page", "Local SEO", "Entity SEO", "Indexing", "Social/Seeding", "Analytics & Reporting", "Khác"] }, { key: "description", label: "Nội dung thực hiện", type: "textarea", required: true }, { key: "result", label: "Kết quả", type: "textarea" }, { key: "status", label: "Trạng thái", type: "select", options: ["Chưa làm", "Đang làm", "Đã xong"] }, { key: "priority", label: "Mức độ", type: "select", options: ["Low", "Medium", "High", "Critical"] }, { key: "imageUrl", label: "Ảnh đính kèm", type: "textarea" }, { key: "document", label: "Link tài liệu" }],
   changes: [{ key: "date", label: "Thời gian" }, { key: "action", label: "Hành động" }, { key: "entity", label: "Đối tượng" }, { key: "user", label: "Người thực hiện" }, { key: "detail", label: "Chi tiết" }],
   personnel: [{ key: "name", label: "Họ tên", required: true }, { key: "role", label: "Vai trò" }, { key: "email", label: "Email" }, { key: "phone", label: "Số điện thoại" }, { key: "status", label: "Trạng thái", type: "select", options: ["Active", "Inactive"] }, { key: "updated", label: "Ngày cập nhật", type: "date" }, { key: "note", label: "Ghi chú", type: "textarea" }],
   expenses: [{ key: "date", label: "Ngày phát sinh", type: "date", required: true }, { key: "category", label: "Loại chi phí", type: "select", options: ["Công cụ SEO", "Nội dung", "Backlink", "Quảng cáo", "Kỹ thuật", "Khác"] }, { key: "description", label: "Nội dung chi phí", required: true }, { key: "amount", label: "Số tiền (VNĐ)", type: "number", required: true }, { key: "status", label: "Trạng thái", type: "select", options: ["Chưa thanh toán", "Đã thanh toán"] }, { key: "vendor", label: "Nhà cung cấp" }, { key: "owner", label: "Người phụ trách" }, { key: "note", label: "Ghi chú", type: "textarea" }],
@@ -120,7 +131,7 @@ const moduleMeta: Record<ModuleKey, { title: string; eyebrow: string; descriptio
   entities: { title: "Entity SEO", eyebrow: "BRAND ENTITY", description: "Theo dõi hồ sơ thương hiệu, NAP, xác minh và index.", columns: ["name", "owner", "type", "platform", "nap", "verified", "indexed", "updated"], prefix: "ENTITY" },
   seeding: { title: "Seeding", eyebrow: "DISTRIBUTION", description: "Theo dõi bài seeding, tài khoản, link đích và tình trạng tồn tại.", columns: ["platform", "owner", "postUrl", "targetUrl", "posted", "status", "removed", "checked"], prefix: "SEED" },
   rankings: { title: "Keyword Rankings", eyebrow: "SEARCH PERFORMANCE", description: "Quản lý vị trí, clicks, impressions và CTR.", columns: ["keyword", "owner", "page", "position", "previous", "clicks", "impressions", "ctr", "date"], prefix: "KW" },
-  worklogs: { title: "Nhật ký làm việc", eyebrow: "DAILY EXECUTION", description: "Tự động ghi nhận công việc từ các mục SEO và liên kết về bản ghi gốc.", columns: ["date", "time", "completedAt", "title", "description", "status", "priority", "sourceLabel", "owner"], prefix: "LOG" },
+  worklogs: { title: "Nhật ký làm việc", eyebrow: "DAILY EXECUTION", description: "Tự động ghi nhận công việc từ các mục SEO và liên kết về bản ghi gốc.", columns: ["occurredAt", "completedAt", "title", "description", "status", "priority", "sourceLabel", "owner"], prefix: "LOG" },
   changes: { title: "Change Log", eyebrow: "AUDIT TRAIL", description: "Lịch sử các thay đổi quan trọng trong hệ thống.", columns: ["date", "action", "entity", "user", "detail"], prefix: "CHANGE" },
   personnel: { title: "Nhân sự", eyebrow: "TEAM MANAGEMENT", description: "Quản lý người phụ trách để chọn nhanh khi tạo task và nội dung.", columns: ["name", "role", "email", "phone", "status", "updated", "note"], prefix: "PERSON" },
   expenses: { title: "Chi phí phát sinh", eyebrow: "EXPENSE TRACKING", description: "Theo dõi các khoản chi phí phát sinh trong quá trình triển khai SEO.", columns: ["date", "category", "description", "amount", "status", "vendor", "owner"], prefix: "EXPENSE" },
@@ -173,6 +184,15 @@ const pathToPage = (path: string) => { const key = Object.keys(pagePaths).find(i
 
 function normalizeRow(module: ModuleKey, draft: Row): Row {
   const row = { ...draft };
+  if (module === "worklogs") {
+    const occurredAt = String(row.occurredAt || "").trim();
+    if (occurredAt) {
+      row.date = occurredAt.slice(0, 10);
+      row.time = occurredAt.slice(11, 16);
+    } else if (row.date) {
+      row.occurredAt = [row.date, row.time].filter(Boolean).join("T");
+    }
+  }
   if (module === "content") {
     if (!row.url && row.topic) row.url = `/blog/${slugify(String(row.topic))}`;
     const volume = Math.min(Number(row.volume || 0) / 100, 30);
@@ -232,16 +252,25 @@ const activityIsComplete = (module: ModuleKey, row: Row) => {
   if (module === "onpage") return Number(row.score || 0) === 100;
   return false;
 };
+const activityCompletionValue = (module: ModuleKey, row: Row) => {
+  if (!activityIsComplete(module, row)) return "";
+  const completionKeys: Partial<Record<ModuleKey, string[]>> = {
+    tasks: ["completedDate"], content: ["publishDate"], calendar: ["approved", "date"], onpage: ["checked"],
+    audits: ["completed"], indexing: ["checked"], backlinks: ["placed"], entities: ["updated"], seeding: ["posted"],
+  };
+  return firstText(row, completionKeys[module] || []);
+};
 const formatDateTime = (value: unknown) => {
   if (!value) return "—";
   const date = new Date(String(value));
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(value))) return date.toLocaleDateString("vi-VN");
   return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString("vi-VN", { dateStyle: "short", timeStyle: "short" });
 };
 const createActivityLog = (module: ModuleKey, row: Row, owner: string, previous?: Row): Row => {
   const created = new Date();
   const completedAt = activityIsComplete(module, row) ? String(previous?.completedAt || created.toISOString()) : "";
   return {
-    id: uid("LOG"), date: today(), time: created.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }),
+    id: uid("LOG"), date: today(), time: created.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }), occurredAt: created.toISOString(),
     title: activityTitle(module, row), description: activityDescription(module, row), status: activityStatus(module, row),
     priority: activityPriority(module, row), owner: row.owner || owner, group: sourceGroup[module] || "Khác", result: row.result || "",
     sourceModule: module, sourceId: row.id, sourceLabel: moduleMeta[module].title, automatic: true, createdAt: created.toISOString(),
@@ -742,7 +771,7 @@ function EditorModal({ title, module, row, personnel, defaultOwner, onSave, onCl
       .map(field => [field.key, field.options?.[0]])),
     ...(fields[module].some(field => field.key === "owner") && !row.owner && defaultOwner ? { owner: defaultOwner } : {}),
     ...(module === "tasks" && !row.startDate ? { startDate: today() } : {}),
-    ...(module === "worklogs" && !row.date ? { date: today() } : {}),
+    ...(module === "worklogs" && !row.occurredAt ? { occurredAt: `${today()}T${new Date().toLocaleTimeString("en-CA", { hour: "2-digit", minute: "2-digit", hour12: false })}` } : {}),
     ...(module === "onpage" && !row.checked ? { checked: today() } : {}),
     ...(module === "personnel" && !row.updated ? { updated: today() } : {})
   }));
