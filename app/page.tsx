@@ -221,10 +221,7 @@ const sourceGroup: Partial<Record<ModuleKey, string>> = {
 const firstText = (row: Row, keys: string[]) => keys.map(key => String(row[key] || "").trim()).find(Boolean) || "";
 const activityTitle = (module: ModuleKey, row: Row) => {
   const value = firstText(row, ["title", "issue", "topic", "url", "domain", "name", "platform"]);
-  if (module === "audits") return `Technical SEO Audit: ${value || row.id}`;
-  if (module === "onpage") return `On-page: ${value || row.id}`;
-  if (module === "indexing") return `Index Tracking: ${value || row.id}`;
-  return value || `${moduleMeta[module].title}: ${row.id}`;
+  return value || row.id;
 };
 const activityDescription = (module: ModuleKey, row: Row) => {
   const keysByModule: Partial<Record<ModuleKey, string[]>> = {
