@@ -13,7 +13,6 @@ type RecordTarget = { module: ModuleKey; id: string };
 
 const today = () => new Date().toISOString().slice(0, 10);
 const uid = (prefix: string) => `${prefix}-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
-const slugify = (value: string) => value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 const csvEscape = (value: unknown) => `"${String(value ?? "").replaceAll('"', '""')}"`;
 const formatCurrency = (value: unknown) => new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(Number(value) || 0);
 const parseCsvLine = (line: string) => {
@@ -43,7 +42,7 @@ const seedData: AppData = {
     { id: "TASK-002", title: "Viết bài visa Singapore", group: "Content", priority: "High", status: "Review", startDate: "2026-09-07", owner: "SEO Freelancer", estimated: 4, actual: 3, url: "", result: "Đã hoàn thiện bản nháp" },
   ],
   content: [
-    { id: "CONTENT-001", topic: "Dịch vụ visa Singapore trọn gói", keyword: "visa Singapore", secondary: "xin visa Singapore, hồ sơ visa Singapore", intent: "Commercial", funnel: "BOFU", cluster: "Visa Singapore", pillar: "", owner: "SEO Freelancer", status: "Published", deadline: "2026-09-05", publishDate: "2026-09-05", priority: "High", volume: 2400, difficulty: 42, business: 9, relevance: 10, potential: 8, score: 85, url: "/dich-vu-visa-singapore", notes: "" },
+    { id: "CONTENT-001", topic: "Dịch vụ visa Singapore trọn gói", keyword: "visa Singapore", secondary: "xin visa Singapore, hồ sơ visa Singapore", url: "/dich-vu-visa-singapore", publishDate: "2026-09-05", owner: "SEO Freelancer", pillar: "Pillar", status: "Published", notes: "" },
   ],
   calendar: [{ id: "CAL-001", date: "2026-09-10", title: "Kinh nghiệm xin visa Úc tự túc", keyword: "visa Úc tự túc", url: "/blog/visa-uc-tu-tuc", channel: "Website", status: "Review", owner: "SEO Freelancer", approved: "", campaign: "SEO Visa" }],
   onpage: [{ id: "ONPAGE-001", url: "/dich-vu-visa-singapore", https: true, canonical: true, indexable: true, title: true, meta: true, h1: true, headings: true, intent: true, internal: true, external: true, alt: true, schema: true, mobile: true, score: 100, missing: "" }],
@@ -63,6 +62,18 @@ const emptyData = (): AppData => ({
   tasks: [], content: [], calendar: [], onpage: [], audits: [], indexing: [],
   backlinks: [], entities: [], seeding: [], rankings: [], worklogs: [], changes: [], personnel: [], expenses: [],
 });
+const normalizeContentRow = (row: Row): Row => ({
+  id: row.id,
+  topic: String(row.topic ?? row.title ?? ""),
+  keyword: String(row.keyword ?? ""),
+  secondary: String(row.secondary ?? ""),
+  url: String(row.url ?? ""),
+  publishDate: String(row.publishDate ?? row.deadline ?? ""),
+  owner: String(row.owner ?? ""),
+  pillar: ["Pillar", "Cluster"].includes(String(row.pillar)) ? String(row.pillar) : "",
+  status: String(row.status ?? "Idea"),
+  notes: String(row.notes ?? ""),
+});
 const ensureUniqueIds = (source: AppData): AppData => {
   const next = { ...source };
   (Object.keys(next) as ModuleKey[]).forEach(module => {
@@ -73,6 +84,7 @@ const ensureUniqueIds = (source: AppData): AppData => {
       seen.add(id);
       let normalizedRow = module === "worklogs" && !row.status ? { ...row, status: Number(row.completion || 0) >= 100 ? "Đã xong" : Number(row.completion || 0) > 0 ? "Đang làm" : "Chưa làm" } : row;
       if (module === "tasks" && !normalizedRow.startDate && normalizedRow.due) normalizedRow = { ...normalizedRow, startDate: normalizedRow.due };
+      if (module === "content") normalizedRow = normalizeContentRow(normalizedRow);
       normalizedRow = applySelectDefaults(module, normalizedRow);
       return { ...normalizedRow, id };
     });
@@ -99,12 +111,9 @@ const fields: Record<ModuleKey, Field[]> = {
     { key: "url", label: "URL liên quan" }, { key: "result", label: "Kết quả/Ghi chú", type: "textarea" },
   ],
   content: [
-    { key: "topic", label: "Chủ đề/Tiêu đề", required: true }, { key: "keyword", label: "Keyword chính", required: true }, { key: "secondary", label: "Keyword phụ" }, { key: "intent", label: "Search intent", type: "select", options: ["Informational", "Commercial", "Transactional", "Navigational"] },
-    { key: "funnel", label: "Funnel", type: "select", options: ["TOFU", "MOFU", "BOFU"] }, { key: "cluster", label: "Topic cluster" }, { key: "pillar", label: "Pillar page" }, { key: "url", label: "URL dự kiến" },
-    { key: "owner", label: "Người thực hiện" }, { key: "status", label: "Trạng thái", type: "select", options: ["Idea", "Outline", "In progress", "Review", "Scheduled", "Published", "Updating"] },
-    { key: "deadline", label: "Deadline", type: "date" }, { key: "publishDate", label: "Ngày đăng", type: "date" }, { key: "priority", label: "Ưu tiên", type: "select", options: ["Low", "Medium", "High"] },
-    { key: "volume", label: "Search volume", type: "number" }, { key: "difficulty", label: "Keyword difficulty", type: "number" }, { key: "business", label: "Business value (1-10)", type: "number" },
-    { key: "relevance", label: "Độ liên quan (1-10)", type: "number" }, { key: "potential", label: "Ranking potential (1-10)", type: "number" }, { key: "notes", label: "Ghi chú", type: "textarea" },
+    { key: "topic", label: "Tiêu đề", required: true }, { key: "keyword", label: "Từ khóa chính", required: true }, { key: "secondary", label: "Từ khóa phụ" }, { key: "url", label: "Link tới bài viết" },
+    { key: "owner", label: "Người đăng" }, { key: "status", label: "Trạng thái", type: "select", options: ["Idea", "Outline", "In progress", "Review", "Scheduled", "Published", "Updating"] },
+    { key: "publishDate", label: "Thời gian đăng", type: "date" }, { key: "pillar", label: "Pillar page", type: "select", options: ["Pillar", "Cluster"] }, { key: "notes", label: "Ghi chú", type: "textarea" },
   ],
   calendar: [{ key: "date", label: "Ngày đăng", type: "date", required: true }, { key: "title", label: "Tên bài", required: true }, { key: "keyword", label: "Keyword" }, { key: "url", label: "URL" }, { key: "channel", label: "Kênh", type: "select", options: ["Website", "Website + Social", "Facebook", "LinkedIn", "Google Business"] }, { key: "status", label: "Trạng thái", type: "select", options: ["Planned", "Review", "Scheduled", "Published"] }, { key: "owner", label: "Người phụ trách" }, { key: "approved", label: "Ngày duyệt", type: "date" }, { key: "campaign", label: "Chiến dịch/Ghi chú" }],
   onpage: [{ key: "url", label: "URL", required: true }, { key: "owner", label: "Người phụ trách" }, { key: "checked", label: "Ngày kiểm tra", type: "date" }, ...["https", "canonical", "indexable", "title", "meta", "h1", "headings", "intent", "internal", "external", "alt", "schema", "mobile"].map(key => ({ key, label: key.toUpperCase(), type: "checkbox" as const })), { key: "missing", label: "Việc còn thiếu", type: "textarea" }],
@@ -122,7 +131,7 @@ const fields: Record<ModuleKey, Field[]> = {
 
 const moduleMeta: Record<ModuleKey, { title: string; eyebrow: string; description: string; columns: string[]; prefix: string }> = {
   tasks: { title: "Công việc", eyebrow: "WORKFLOW MANAGEMENT", description: "Theo dõi công việc từ ngày bắt đầu đến ngày hoàn thành.", columns: ["title", "group", "priority", "startDate", "completedDate", "status", "owner"], prefix: "TASK" },
-  content: { title: "Kế hoạch nội dung", eyebrow: "CONTENT OPERATIONS", description: "Quản lý keyword, topic cluster, tiến độ và điểm cơ hội.", columns: ["topic", "keyword", "intent", "cluster", "publishDate", "score", "owner", "status"], prefix: "CONTENT" },
+  content: { title: "Kế hoạch nội dung", eyebrow: "CONTENT OPERATIONS", description: "Quản lý tiêu đề, từ khóa, link bài viết, lịch đăng và trạng thái nội dung.", columns: ["topic", "keyword", "secondary", "url", "publishDate", "owner", "pillar", "status", "notes"], prefix: "CONTENT" },
   calendar: { title: "Lịch đăng bài", eyebrow: "PUBLISHING CALENDAR", description: "Theo dõi lịch xuất bản, duyệt bài và phân phối nội dung.", columns: ["date", "title", "keyword", "channel", "owner", "status"], prefix: "CAL" },
   onpage: { title: "On-page Checklist", eyebrow: "URL QUALITY CONTROL", description: "Chấm điểm từng URL và phát hiện hạng mục còn thiếu.", columns: ["url", "owner", "checked", "title", "meta", "h1", "internal", "alt", "schema", "score"], prefix: "ONPAGE" },
   audits: { title: "Technical SEO Audit", eyebrow: "TECHNICAL SEO", description: "Theo dõi lỗi, mức ảnh hưởng, ảnh trước/sau và tiến độ khắc phục.", columns: ["url", "owner", "category", "issue", "severity", "beforeImages", "afterImages", "due", "status"], prefix: "AUDIT" },
@@ -139,7 +148,7 @@ const moduleMeta: Record<ModuleKey, { title: string; eyebrow: string; descriptio
 
 const moduleDateKeys: Record<ModuleKey, string[]> = {
   tasks: ["completedDate", "startDate"],
-  content: ["publishDate", "deadline"],
+  content: ["publishDate"],
   calendar: ["date", "approved"],
   onpage: ["checked"],
   audits: ["completed", "found", "due"],
@@ -196,9 +205,7 @@ function normalizeRow(module: ModuleKey, draft: Row): Row {
     }
   }
   if (module === "content") {
-    if (!row.url && row.topic) row.url = `/blog/${slugify(String(row.topic))}`;
-    const volume = Math.min(Number(row.volume || 0) / 100, 30);
-    row.score = Math.max(0, Math.min(100, Math.round(volume + Number(row.business || 0) * 2 + Number(row.relevance || 0) * 2 + Number(row.potential || 0) * 2 - Number(row.difficulty || 0) * .1)));
+    return normalizeContentRow(row);
   }
   if (module === "onpage") {
     const keys = ["https", "canonical", "indexable", "title", "meta", "h1", "headings", "intent", "internal", "external", "alt", "schema", "mobile"];
@@ -880,7 +887,7 @@ function ReportWithGsc({ data, settings }: { data: AppData; settings: SiteSettin
   const inRange = (value: unknown) => { const date = String(value || ""); return Boolean(date && date >= from && date <= to); };
   const logs = data.worklogs.filter(row => inRange(row.date));
   const tasks = data.tasks.filter(row => row.status === "Done" && inRange(row.completedDate || row.startDate));
-  const content = data.content.filter(row => inRange(row.publishDate || row.deadline));
+  const content = data.content.filter(row => inRange(row.publishDate));
   const audits = data.audits.filter(row => inRange(row.completed || row.found || row.due));
   const indexing = data.indexing.filter(row => inRange(row.checked || row.submitted));
   const backlinks = data.backlinks.filter(row => inRange(row.placed || row.checked));
@@ -910,7 +917,7 @@ function DetailedReports({ data, settings }: { data: AppData; settings: SiteSett
   const inRange = (value: unknown) => { const date = String(value || ""); return Boolean(date && date >= from && date <= to); };
   const tasks = data.tasks.filter(row => row.status === "Done" && inRange(row.completedDate || row.startDate));
   const logs = data.worklogs.filter(row => inRange(row.date));
-  const content = data.content.filter(row => inRange(row.publishDate || row.deadline));
+  const content = data.content.filter(row => inRange(row.publishDate));
   const audits = data.audits.filter(row => inRange(row.completed || row.found || row.due));
   const indexRows = data.indexing.filter(row => inRange(row.checked || row.submitted));
   const backlinks = data.backlinks.filter(row => inRange(row.placed || row.checked));
@@ -971,7 +978,7 @@ function Reports({ data, settings }: { data: AppData; settings: SiteSettings }) 
 function Settings({ data, setData, settings, setSettings, notify, requestConfirm }: { data: AppData; setData: (data: AppData) => void; settings: SiteSettings; setSettings: (settings: SiteSettings) => void; notify: (message: string) => void; requestConfirm: (config: ConfirmConfig) => void }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const backup = () => downloadFile(`seo-backup-${today()}.json`, JSON.stringify({ version: 2, settings, data }, null, 2), "application/json");
-  const restore = async (event: ChangeEvent<HTMLInputElement>) => { const file = event.target.files?.[0]; if (!file) return; try { const parsed = JSON.parse(await file.text()); setData({ ...seedData, ...parsed.data }); if (parsed.settings) setSettings({ ...defaultSettings, ...parsed.settings }); notify("Khôi phục dữ liệu thành công"); } catch { notify("File backup không hợp lệ"); } event.target.value = ""; };
+  const restore = async (event: ChangeEvent<HTMLInputElement>) => { const file = event.target.files?.[0]; if (!file) return; try { const parsed = JSON.parse(await file.text()); setData(ensureUniqueIds({ ...seedData, ...parsed.data })); if (parsed.settings) setSettings({ ...defaultSettings, ...parsed.settings }); notify("Khôi phục dữ liệu thành công"); } catch { notify("File backup không hợp lệ"); } event.target.value = ""; };
   const reset = () => requestConfirm({ eyebrow: "KHÔI PHỤC DỮ LIỆU", title: "Khôi phục workspace ban đầu?", description: "Toàn bộ dữ liệu hiện tại sẽ được thay bằng dữ liệu mẫu. Hãy tải file backup trước nếu cần giữ lại thông tin.", confirmLabel: "Khôi phục dữ liệu", danger: true, onConfirm: () => { setData(seedData); setSettings(defaultSettings); notify("Đã khôi phục workspace ban đầu"); } });
   const askNotification = async () => { if (!("Notification" in window)) return notify("Trình duyệt không hỗ trợ thông báo"); const result = await Notification.requestPermission(); notify(result === "granted" ? "Đã bật thông báo" : "Chưa được cấp quyền thông báo"); };
   return <><section className="page-heading"><div><p className="eyebrow">WORKSPACE CONFIGURATION</p><h2>Cài đặt & dữ liệu</h2><p className="muted">Quản lý thông tin website, thông báo và sao lưu dữ liệu.</p></div></section><div className="settings-grid"><div className="panel settings-form"><h3>Thông tin website</h3>{(["name", "domain", "owner", "email", "timezone"] as const).map(key => <label key={key}><span>{{ name: "Tên website", domain: "Domain", owner: "Người phụ trách", email: "Email báo cáo", timezone: "Múi giờ" }[key]}</span><input value={settings[key]} onChange={event => setSettings({ ...settings, [key]: event.target.value })} /></label>)}<p className="save-note">Mọi thay đổi được tự động lưu.</p></div><div className="panel"><h3>Tiện ích dữ liệu</h3><div className="settings-actions"><button className="secondary" onClick={backup}>Tải file backup JSON</button><button className="secondary" onClick={() => fileRef.current?.click()}>Khôi phục từ backup</button><input ref={fileRef} hidden type="file" accept=".json" onChange={restore} /><button className="secondary" onClick={askNotification}>Bật thông báo trình duyệt</button><button className="danger-button" onClick={reset}>Khôi phục dữ liệu ban đầu</button></div><div className="storage-status"><span>●</span><div><b>Local Workspace</b><small>{Object.values(data).reduce((sum, rows) => sum + rows.length, 0)} bản ghi · tự động lưu · có backup/restore</small></div></div><p className="integration-note">Khi cấu hình Supabase, dữ liệu có thể đồng bộ nhiều thiết bị và phân quyền người dùng. Bản local hiện tại vẫn dùng đầy đủ trên một trình duyệt.</p></div></div></>;
