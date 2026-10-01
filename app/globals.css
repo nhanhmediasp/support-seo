@@ -112,3 +112,52 @@ nav{gap:18px;padding:3px 0}.nav-group{position:relative;padding-left:8px}.nav-gr
 .report-comparison-row figure>span{padding:8px;font-size:9px;letter-spacing:.5px}
 .report-image-placeholder{padding:8px;font-size:10px;text-align:center}
 @media(max-width:800px){.report-comparison-list{grid-template-columns:1fr}.report-comparison-row{grid-template-columns:1fr 1fr}}
+
+/* Clickable table links */
+.report-table-link{display:inline-flex;align-items:center;gap:5px;color:#2f55d4;text-decoration:none;font-weight:600;max-width:100%;word-break:break-all;transition:color .15s}
+.report-table-link:hover{color:#1a3cb0;text-decoration:underline}
+.report-table-link-icon{flex-shrink:0;opacity:.7;transition:transform .15s}
+.report-table-link:hover .report-table-link-icon{transform:translate(1px,-1px);opacity:1}
+.report-table-link-text{overflow:hidden;text-overflow:ellipsis}
+.report-cell-empty{color:#a0abbd}
+
+/* Floating Table of Contents Widget */
+.report-toc-widget{position:fixed;left:24px;bottom:28px;z-index:90}
+.report-toc-toggle-button{display:inline-flex;align-items:center;gap:9px;padding:11px 16px;background:linear-gradient(135deg,#121b37,#253763);color:#fff;border:1px solid #3c5185;border-radius:30px;box-shadow:0 12px 35px #0a132c45,0 0 0 1px #ffffff1a;font-size:12px;font-weight:700;cursor:pointer;transition:all .2s ease}
+.report-toc-toggle-button:hover{transform:translateY(-2px);background:linear-gradient(135deg,#18254c,#2f467d);box-shadow:0 16px 40px #0a132c60}
+.report-toc-toggle-button .report-toc-icon{font-size:14px}
+.report-toc-count{background:#4169e1;color:#fff;border-radius:12px;padding:2px 7px;font-size:10px;font-weight:800}
+
+.report-toc-panel{width:320px;max-height:calc(85vh - 40px);display:flex;flex-direction:column;background:#0f182fe8;backdrop-filter:blur(16px);border:1px solid #2a3c66;border-radius:16px;box-shadow:0 24px 60px #070e2270;overflow:hidden;animation:toc-slide-up .22s cubic-bezier(0.16,1,0.3,1);color:#fff}
+@keyframes toc-slide-up{from{opacity:0;transform:translateY(16px) scale(.96)}to{opacity:1;transform:translateY(0) scale(1)}}
+
+.report-toc-header{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #203154;background:#15224480}
+.report-toc-title{display:flex;align-items:center;gap:9px}
+.report-toc-title b{display:block;font-size:11px;letter-spacing:1px;color:#cbd7f5}
+.report-toc-title small{display:block;font-size:10px;color:#8596bd;margin-top:1px}
+.report-toc-close{border:0;background:#ffffff14;color:#a4b4d8;width:28px;height:28px;border-radius:7px;display:grid;place-items:center;font-size:13px;cursor:pointer;transition:all .15s}
+.report-toc-close:hover{background:#ffffff2b;color:#fff}
+
+.report-toc-list{flex:1;overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:3px}
+.report-toc-list::-webkit-scrollbar{width:5px}
+.report-toc-list::-webkit-scrollbar-thumb{background:#2a3b63;border-radius:4px}
+
+.report-toc-item{display:flex;align-items:center;gap:10px;width:100%;padding:9px 11px;border:1px solid transparent;border-radius:9px;background:transparent;color:#b2c0df;font-size:12px;font-weight:500;text-align:left;cursor:pointer;transition:all .15s}
+.report-toc-item:hover{background:#1d2c52;color:#fff}
+.report-toc-item.active{background:#273b6b;color:#fff;font-weight:700;border-color:#486cd6;box-shadow:0 4px 14px #2b499b40}
+.report-toc-badge{flex-shrink:0;width:24px;height:24px;border-radius:6px;background:#1a284c;color:#7e97d1;font-size:10px;font-weight:800;display:grid;place-items:center}
+.report-toc-item.active .report-toc-badge{background:#4169e1;color:#fff}
+.report-toc-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+
+.report-toc-footer{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 14px;border-top:1px solid #203154;background:#15224480}
+.report-toc-action{border:0;background:transparent;color:#8ba0ce;font-size:11px;font-weight:600;cursor:pointer;padding:4px 6px;border-radius:5px}
+.report-toc-action:hover{color:#fff;background:#ffffff14}
+
+@media(max-width:800px){
+  .report-toc-widget{left:14px;bottom:16px}
+  .report-toc-panel{width:calc(100vw - 28px);max-height:75vh}
+}
+@media print{
+  .report-toc-widget{display:none!important}
+}
+

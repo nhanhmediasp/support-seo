@@ -108,11 +108,16 @@ function rangeData(data: ReportData, from: string, to: string): ReportData {
 
 function suggestedSummary(snapshot: ReportData) {
   const { clicks, impressions } = gscStats(snapshot.rankings || []);
-  const sessions = (snapshot.analytics || []).reduce((sum, row) => sum + asNumber(row.sessions), 0);
+  const analytics = snapshot.analytics || [];
+  const gaOverview = analytics.find(row => row.channel === "Tổng quan");
+  const gaChannelRows = analytics.filter(row => row.channel !== "Tổng quan" && row.channel !== "Trang xem nhiều" && !row.page);
+  const sessions = gaOverview ? asNumber(gaOverview.sessions) : gaChannelRows.reduce((sum, row) => sum + asNumber(row.sessions), 0);
+  const users = gaOverview ? asNumber(gaOverview.users) : gaChannelRows.reduce((sum, row) => sum + asNumber(row.users), 0);
   const done = (snapshot.tasks || []).filter(row => asText(row.status) === "Done").length;
   const published = (snapshot.content || []).filter(row => asText(row.status) === "Published").length;
   const fixed = (snapshot.audits || []).filter(row => asText(row.status) === "Done").length;
-  return `Trong kỳ, website ghi nhận ${formatNumber(clicks)} lượt nhấp, ${formatNumber(impressions)} lượt hiển thị tự nhiên và ${formatNumber(sessions)} phiên truy cập theo Google Analytics. Đội ngũ đã hoàn thành ${done} công việc, xuất bản ${published} nội dung và xử lý ${fixed} hạng mục kỹ thuật. Các số liệu và bằng chứng chi tiết được trình bày ở các phần bên dưới.`;
+  const userText = users ? ` (${formatNumber(users)} người dùng)` : "";
+  return `Trong kỳ, website ghi nhận ${formatNumber(clicks)} lượt nhấp, ${formatNumber(impressions)} lượt hiển thị tự nhiên từ Google Search Console và ${formatNumber(sessions)} phiên truy cập${userText} theo Google Analytics. Đội ngũ đã hoàn thành ${done} công việc, xuất bản ${published} nội dung và xử lý ${fixed} hạng mục kỹ thuật. Các số liệu chi tiết theo kênh traffic và trang được trình bày ở các phần bên dưới.`;
 }
 
 function suggestedPlan(snapshot: ReportData) {
@@ -121,16 +126,66 @@ function suggestedPlan(snapshot: ReportData) {
   return `- Ưu tiên xử lý ${pendingAudit} hạng mục Technical SEO còn mở.\n- Theo dõi và cải thiện ${pendingIndex} URL chưa index.\n- Cập nhật nhóm nội dung có cơ hội tăng hạng và mở rộng internal link.\n- Tiếp tục theo dõi Search Console, thứ hạng và chuyển đổi theo tuần.`;
 }
 
-function Table({ rows, columns }: { rows: Row[]; columns: { key: string; label: string }[] }) {
-  if (!rows.length) return <p className="report-empty">Không có dữ liệu trong kỳ báo cáo.</p>;
-  return <div className="report-table-wrap"><table className="report-table"><thead><tr>{columns.map(column => <th key={column.key}>{column.label}</th>)}</tr></thead><tbody>{rows.map(row => <tr key={row.id}>{columns.map(column => <td key={column.key}>{asText(row[column.key]) || "—"}</td>)}</tr>)}</tbody></table></div>;
+function formatReportCell(columnKey: string, rawValue: unknown, baseDomain = "") {
+  const value = asText(rawValue);
+  if (!value || value === "—") return <span className="report-cell-empty">—</span>;
+
+  const isLinkColumn = ["url", "targetUrl", "sourceUrl", "postUrl", "document", "domain"].includes(columnKey);
+  const startsWithHttp = /^https?:\/\//i.test(value);
+  const startsWithSlash = value.startsWith("/") && value.length > 1;
+  const isDomain = columnKey === "domain" && /^[\w.-]+\.[a-z]{2,}$/i.test(value);
+  const isPageUrl = columnKey === "page" && (startsWithHttp || startsWithSlash);
+
+  if (startsWithHttp || startsWithSlash || isDomain || (isLinkColumn && (startsWithHttp || startsWithSlash || isDomain)) || isPageUrl) {
+    let href = value;
+    if (startsWithSlash) {
+      const cleanBase = baseDomain.replace(/\/+$/, "");
+      href = cleanBase ? `${cleanBase}${value}` : value;
+    } else if (isDomain && !startsWithHttp) {
+      href = `https://${value}`;
+    }
+
+    let display = value;
+    try {
+      if (startsWithHttp) {
+        const parsed = new URL(value);
+        display = `${parsed.hostname}${parsed.pathname === "/" ? "" : parsed.pathname}`;
+      }
+    } catch {
+      display = value;
+    }
+
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="report-table-link"
+        title={`Mở liên kết: ${href}`}
+      >
+        <span className="report-table-link-text">{display}</span>
+        <svg className="report-table-link-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+          <polyline points="15 3 21 3 21 9" />
+          <line x1="10" y1="14" x2="21" y2="3" />
+        </svg>
+      </a>
+    );
+  }
+
+  return value;
+}
+
+function Table({ rows, columns, baseDomain = "" }: { rows: Row[]; columns: { key: string; label: string }[]; baseDomain?: string }) {
+  if (!rows.length) return null;
+  return <div className="report-table-wrap"><table className="report-table"><thead><tr>{columns.map(column => <th key={column.key}>{column.label}</th>)}</tr></thead><tbody>{rows.map(row => <tr key={row.id}>{columns.map(column => <td key={column.key}>{formatReportCell(column.key, row[column.key], baseDomain)}</td>)}</tr>)}</tbody></table></div>;
 }
 
 function EvidenceGallery({ rows }: { rows: Row[] }) {
   const items = rows.flatMap(row => [
     ...imageLinks(row.imageUrl).map(url => ({ url, label: asText(row.title || row.description || row.id), type: "Ảnh công việc" })),
   ]);
-  if (!items.length) return <p className="report-empty">Không có ảnh bằng chứng trong kỳ báo cáo.</p>;
+  if (!items.length) return null;
   return <div className="report-evidence-grid">{items.map((item, index) => <figure key={`${item.url}-${index}`}><img src={item.url} alt={`${item.type}: ${item.label}`} /><figcaption><b>{item.type}</b><span>{item.label}</span></figcaption></figure>)}</div>;
 }
 
@@ -141,13 +196,13 @@ function BeforeAfterGallery({ rows }: { rows: Row[] }) {
     const count = Math.max(before.length, after.length);
     return { id: row.id, title: asText(row.issue || row.url || row.id), pairs: Array.from({ length: count }, (_, index) => ({ before: before[index], after: after[index] })) };
   }).filter(group => group.pairs.length);
-  if (!groups.length) return <p className="report-empty">Không có ảnh trước và sau xử lý trong kỳ báo cáo.</p>;
+  if (!groups.length) return null;
   return <div className="report-comparison-list">{groups.map(group => <section key={group.id} className="report-comparison-group"><h3>{group.title}</h3>{group.pairs.map((pair, index) => <div className="report-comparison-row" key={`${group.id}-${index}`}><figure><span>TRƯỚC XỬ LÝ</span>{pair.before ? <img src={pair.before} alt={`Trước xử lý: ${group.title}`} /> : <div className="report-image-placeholder">Chưa có ảnh trước xử lý</div>}</figure><figure><span>SAU XỬ LÝ</span>{pair.after ? <img src={pair.after} alt={`Sau xử lý: ${group.title}`} /> : <div className="report-image-placeholder">Chưa có ảnh sau xử lý</div>}</figure></div>)}</section>)}</div>;
 }
 
 function SignatureBlock({ signatures, timezone }: { signatures: ReportSignatures; timezone: string }) {
   const items = [["freelancer", signatures.freelancer], ["reviewer", signatures.reviewer]] as const;
-  return <section className="report-signature-section"><div className="report-section-heading"><span>✓</span><h2>Xác nhận & chữ ký</h2></div><div className="report-signature-grid">{items.map(([party, signature]) => <div className="report-signature-card" key={party}><span className="report-signature-role">{signature.role}</span><div className="report-signature-image">{signature.imageUrl ? <img src={signature.imageUrl} alt={`Chữ ký ${signature.name || signature.role}`} /> : <span>Chưa tải chữ ký</span>}</div><strong>{signature.name || "Chưa cập nhật tên"}</strong>{signature.verified && signature.signedAt && signature.name && signature.imageUrl ? <div className="report-signature-verified"><i>✓</i><span>Đã xác nhận · {formatDateTime(signature.signedAt, timezone)}</span></div> : <small>Chưa xác nhận ký hoàn tất</small>}</div>)}</div></section>;
+  return <section className="report-signature-section" id="report-signatures"><div className="report-section-heading"><span>✓</span><h2>Xác nhận & chữ ký</h2></div><div className="report-signature-grid">{items.map(([party, signature]) => <div className="report-signature-card" key={party}><span className="report-signature-role">{signature.role}</span><div className="report-signature-image">{signature.imageUrl ? <img src={signature.imageUrl} alt={`Chữ ký ${signature.name || signature.role}`} /> : <span>Chưa tải chữ ký</span>}</div><strong>{signature.name || "Chưa cập nhật tên"}</strong>{signature.verified && signature.signedAt && signature.name && signature.imageUrl ? <div className="report-signature-verified"><i>✓</i><span>Đã xác nhận · {formatDateTime(signature.signedAt, timezone)}</span></div> : <small>Chưa xác nhận ký hoàn tất</small>}</div>)}</div></section>;
 }
 
 export default function ReportBuilder({ data, settings, savedReports = [], onSaveReports = () => undefined, notify = () => undefined, onNavigate = () => undefined, projectId = "", viewOnlyReport }: { data: ReportData; settings: ReportSettings; savedReports?: SavedSeoReport[]; onSaveReports?: (reports: SavedSeoReport[]) => void; notify?: (message: string) => void; onNavigate?: (page: string) => void; projectId?: string; viewOnlyReport?: SavedSeoReport }) {
@@ -177,12 +232,17 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
   const rankings = gscKeywordRows(allRankings);
   const { clicks, impressions, ctr, position: avgPosition } = gscStats(allRankings);
   const analytics = snapshot.analytics || [];
-  const gaSessions = analytics.reduce((sum, row) => sum + asNumber(row.sessions), 0);
-  const gaUsers = analytics.reduce((sum, row) => sum + asNumber(row.users), 0);
-  const gaNewUsers = analytics.reduce((sum, row) => sum + asNumber(row.newUsers), 0);
-  const gaEngagedSessions = analytics.reduce((sum, row) => sum + asNumber(row.engagedSessions), 0);
-  const gaConversions = analytics.reduce((sum, row) => sum + asNumber(row.conversions), 0);
-  const gaEngagementRate = gaSessions ? gaEngagedSessions / gaSessions * 100 : analytics.length ? analytics.reduce((sum, row) => sum + asNumber(row.engagementRate), 0) / analytics.length : 0;
+  const gaOverview = analytics.find(row => row.channel === "Tổng quan");
+  const gaChannelRows = analytics.filter(row => row.channel !== "Tổng quan" && row.channel !== "Trang xem nhiều" && !row.page);
+  const gaPageRows = analytics.filter(row => row.channel === "Trang xem nhiều" || (row.page && asNumber(row.views) > 0)).sort((a, b) => asNumber(b.views) - asNumber(a.views));
+
+  const gaSessions = gaOverview ? asNumber(gaOverview.sessions) : gaChannelRows.reduce((sum, row) => sum + asNumber(row.sessions), 0);
+  const gaUsers = gaOverview ? asNumber(gaOverview.users) : gaChannelRows.reduce((sum, row) => sum + asNumber(row.users), 0);
+  const gaNewUsers = gaOverview ? asNumber(gaOverview.newUsers) : gaChannelRows.reduce((sum, row) => sum + asNumber(row.newUsers), 0);
+  const gaViews = gaOverview ? asNumber(gaOverview.views) : gaPageRows.reduce((sum, row) => sum + asNumber(row.views), 0);
+  const gaEngagedSessions = gaOverview ? asNumber(gaOverview.engagedSessions) : gaChannelRows.reduce((sum, row) => sum + asNumber(row.engagedSessions), 0);
+  const gaConversions = gaOverview ? asNumber(gaOverview.conversions) : gaChannelRows.reduce((sum, row) => sum + asNumber(row.conversions), 0);
+  const gaEngagementRate = gaSessions ? Math.min(100, gaEngagedSessions / gaSessions * 100) : analytics.length ? analytics.reduce((sum, row) => sum + asNumber(row.engagementRate), 0) / analytics.length : 0;
   const completedTasks = (snapshot.tasks || []).filter(row => asText(row.status) === "Done");
   const hours = (snapshot.worklogs || []).reduce((sum, row) => sum + asNumber(row.hours), 0);
   const topQueries = [...rankings]
@@ -204,9 +264,112 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
   const topPages = [...pageMap.values()].sort((a, b) => asNumber(b.clicks) - asNumber(a.clicks)).slice(0, 10).map(row => ({ ...row, position: asNumber(row.position).toFixed(1), ctr: `${asNumber(row.ctr).toFixed(2)}%` }));
   const metrics = [
     ["Organic clicks", formatNumber(clicks)], ["Impressions", formatNumber(impressions)], ["CTR", `${ctr.toFixed(2)}%`], ["Vị trí trung bình", avgPosition ? avgPosition.toFixed(1) : "—"],
-    ["Từ khóa Top 3", rankings.filter(row => asNumber(row.position) <= 3).length], ["Từ khóa Top 10", rankings.filter(row => asNumber(row.position) <= 10).length], ["GA4 Sessions", formatNumber(gaSessions)], ["GA4 Users", formatNumber(gaUsers)], ["Chuyển đổi", formatNumber(gaConversions)], ["Task hoàn thành", completedTasks.length], ["Giờ triển khai", `${hours}h`],
+    ["Từ khóa Top 3", rankings.filter(row => asNumber(row.position) <= 3).length], ["Từ khóa Top 10", rankings.filter(row => asNumber(row.position) <= 10).length], ["GA4 Sessions", formatNumber(gaSessions)], ["GA4 Users", formatNumber(gaUsers)], ...(gaViews > 0 ? [["GA4 Lượt xem trang", formatNumber(gaViews)]] : []), ["Chuyển đổi", formatNumber(gaConversions)], ["Task hoàn thành", completedTasks.length], ["Giờ triển khai", `${hours}h`],
   ];
   const generatedAt = new Date().toISOString();
+
+  const [tocOpen, setTocOpen] = useState(false);
+  const [activeSectionKey, setActiveSectionKey] = useState<string>("");
+
+  const sectionHasData = (key: SectionKey): boolean => {
+    switch (key) {
+      case "overview":
+        return Boolean(summary.trim() || clicks > 0 || impressions > 0 || gaSessions > 0 || rankings.length > 0);
+      case "gsc":
+        return clicks > 0 || impressions > 0 || allRankings.length > 0;
+      case "analytics":
+        return gaSessions > 0 || gaUsers > 0 || gaViews > 0 || gaChannelRows.length > 0 || analytics.length > 0;
+      case "keywords":
+        return topQueries.length > 0;
+      case "pages":
+        return gaPageRows.length > 0 || topPages.length > 0;
+      case "tasks":
+        return completedTasks.length > 0;
+      case "worklogs":
+        return (snapshot.worklogs || []).length > 0;
+      case "content":
+        return (snapshot.content || []).length > 0;
+      case "audits":
+        return (snapshot.audits || []).length > 0;
+      case "indexing":
+        return (snapshot.indexing || []).length > 0;
+      case "backlinks":
+        return (snapshot.backlinks || []).length > 0;
+      case "expenses":
+        return (snapshot.expenses || []).length > 0;
+      case "monthlyReview":
+        return Boolean(monthlyReview && monthlyReview.trim().length > 0);
+      case "nextPlan":
+        return Boolean(nextPlan && nextPlan.trim().length > 0);
+      case "notes":
+        return Boolean(notes && notes.trim().length > 0);
+      default:
+        return true;
+    }
+  };
+
+  const visibleSections = useMemo(
+    () => sections.filter(section => section.enabled && sectionHasData(section.key)),
+    [
+      sections,
+      summary,
+      monthlyReview,
+      nextPlan,
+      notes,
+      clicks,
+      impressions,
+      allRankings,
+      gaSessions,
+      gaUsers,
+      gaViews,
+      gaChannelRows,
+      analytics,
+      topQueries,
+      gaPageRows,
+      topPages,
+      completedTasks,
+      snapshot,
+    ]
+  );
+
+  useEffect(() => {
+    const handleScroll = () => {
+      const headings = visibleSections.map(s => document.getElementById(`report-section-${s.key}`)).filter(Boolean) as HTMLElement[];
+      const scrollPosition = window.scrollY + 160;
+      for (let i = headings.length - 1; i >= 0; i--) {
+        const el = headings[i];
+        if (el && el.offsetTop <= scrollPosition) {
+          setActiveSectionKey(visibleSections[i].key);
+          return;
+        }
+      }
+      if (headings.length > 0 && window.scrollY < 200) {
+        setActiveSectionKey(visibleSections[0].key);
+      }
+    };
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, [visibleSections]);
+
+  const scrollToSection = (key: string) => {
+    const el = document.getElementById(`report-section-${key}`);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+      setActiveSectionKey(key);
+    }
+  };
+
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    setActiveSectionKey("");
+  };
+
+  const scrollToSignatures = () => {
+    const el = document.getElementById("report-signatures");
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  };
 
   const updateSection = (index: number, patch: Partial<SectionConfig>) => setSections(current => current.map((section, currentIndex) => currentIndex === index ? { ...section, ...patch } : section));
   const updateSignature = (party: "freelancer" | "reviewer", patch: Partial<ReportSignature>) => setSignatures(current => ({ ...current, [party]: { ...current[party], ...patch } }));
@@ -288,33 +451,202 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
   };
 
   const renderSection = (section: SectionConfig) => {
-    if (!section.enabled) return null;
-    const wrapper = (content: React.ReactNode) => <section className="report-document-section" key={section.key}><div className="report-section-heading"><span>{String(sections.filter(item => item.enabled).findIndex(item => item.key === section.key) + 1).padStart(2, "0")}</span><h2>{section.title}</h2></div>{content}</section>;
+    if (!section.enabled || !sectionHasData(section.key)) return null;
+    const sectionIndex = visibleSections.findIndex(item => item.key === section.key);
+    const sectionNumber = String((sectionIndex >= 0 ? sectionIndex : 0) + 1).padStart(2, "0");
+    const wrapper = (content: React.ReactNode) => (
+      <section className="report-document-section" key={section.key} id={`report-section-${section.key}`}>
+        <div className="report-section-heading">
+          <span>{sectionNumber}</span>
+          <h2>{section.title}</h2>
+        </div>
+        {content}
+      </section>
+    );
+
     if (section.key === "overview") return wrapper(<><div className="report-kpi-grid">{metrics.map(([label, value]) => <div key={String(label)}><span>{label}</span><strong>{value}</strong></div>)}</div><div className="report-narrative">{summary.split("\n").map((line, index) => <p key={index}>{line || <br />}</p>)}</div></>);
     if (section.key === "gsc") return wrapper(<div className="report-gsc-strip"><div><span>Clicks</span><b>{formatNumber(clicks)}</b></div><div><span>Impressions</span><b>{formatNumber(impressions)}</b></div><div><span>CTR</span><b>{ctr.toFixed(2)}%</b></div><div><span>Vị trí TB</span><b>{avgPosition ? avgPosition.toFixed(1) : "—"}</b></div></div>);
-    if (section.key === "analytics") return wrapper(<div className="report-gsc-strip"><div><span>Sessions</span><b>{formatNumber(gaSessions)}</b></div><div><span>Total users</span><b>{formatNumber(gaUsers)}</b></div><div><span>New users</span><b>{formatNumber(gaNewUsers)}</b></div><div><span>Engagement rate</span><b>{gaEngagementRate.toFixed(2)}%</b></div><div><span>Engaged sessions</span><b>{formatNumber(gaEngagedSessions)}</b></div><div><span>Key events / Conversions</span><b>{formatNumber(gaConversions)}</b></div></div>);
-    if (section.key === "keywords") return wrapper(<Table rows={topQueries.map(row => ({ ...row, ctr: `${asNumber(row.ctr).toFixed(2)}%` }))} columns={[{ key: "keyword", label: "Từ khóa" }, { key: "page", label: "Trang đích" }, { key: "position", label: "Vị trí" }, { key: "clicks", label: "Clicks" }, { key: "impressions", label: "Hiển thị" }, { key: "ctr", label: "CTR" }]} />);
-    if (section.key === "pages") return wrapper(<Table rows={topPages} columns={[{ key: "page", label: "Landing page" }, { key: "clicks", label: "Clicks" }, { key: "impressions", label: "Hiển thị" }, { key: "position", label: "Vị trí TB" }, { key: "ctr", label: "CTR" }]} />);
-    if (section.key === "tasks") return wrapper(<Table rows={completedTasks} columns={[{ key: "title", label: "Công việc" }, { key: "group", label: "Nhóm" }, { key: "owner", label: "Phụ trách" }, { key: "completedDate", label: "Hoàn thành" }, { key: "actual", label: "Giờ" }, { key: "result", label: "Kết quả" }]} />);
-    if (section.key === "worklogs") return wrapper(<><Table rows={snapshot.worklogs || []} columns={[{ key: "date", label: "Ngày" }, { key: "title", label: "Công việc" }, { key: "group", label: "Nhóm" }, { key: "owner", label: "Phụ trách" }, { key: "hours", label: "Giờ" }, { key: "result", label: "Kết quả" }]} /><EvidenceGallery rows={snapshot.worklogs || []} /></>);
-    if (section.key === "content") return wrapper(<Table rows={snapshot.content || []} columns={[{ key: "topic", label: "Nội dung" }, { key: "keyword", label: "Từ khóa" }, { key: "url", label: "URL" }, { key: "owner", label: "Phụ trách" }, { key: "publishDate", label: "Ngày đăng" }, { key: "status", label: "Trạng thái" }]} />);
-    if (section.key === "audits") return wrapper(<><Table rows={snapshot.audits || []} columns={[{ key: "issue", label: "Hạng mục" }, { key: "url", label: "URL" }, { key: "severity", label: "Mức độ" }, { key: "owner", label: "Xử lý" }, { key: "completed", label: "Hoàn tất" }, { key: "status", label: "Trạng thái" }]} /><BeforeAfterGallery rows={snapshot.audits || []} /></>);
-    if (section.key === "indexing") return wrapper(<Table rows={snapshot.indexing || []} columns={[{ key: "url", label: "URL" }, { key: "type", label: "Loại" }, { key: "status", label: "Trạng thái" }, { key: "checked", label: "Kiểm tra" }, { key: "reason", label: "Lý do" }, { key: "action", label: "Hành động" }]} />);
-    if (section.key === "backlinks") return wrapper(<Table rows={snapshot.backlinks || []} columns={[{ key: "domain", label: "Domain" }, { key: "targetUrl", label: "URL đích" }, { key: "anchor", label: "Anchor" }, { key: "owner", label: "Phụ trách" }, { key: "placed", label: "Ngày đặt" }, { key: "status", label: "Trạng thái" }]} />);
-    if (section.key === "expenses") return wrapper(<><Table rows={snapshot.expenses || []} columns={[{ key: "date", label: "Ngày" }, { key: "category", label: "Hạng mục" }, { key: "description", label: "Nội dung" }, { key: "vendor", label: "Nhà cung cấp" }, { key: "amount", label: "Số tiền" }, { key: "status", label: "Trạng thái" }]} /><p className="report-total">Tổng chi phí: <b>{formatMoney((snapshot.expenses || []).reduce((sum, row) => sum + asNumber(row.amount), 0))}</b></p></>);
+    if (section.key === "analytics") {
+      const channelTotal = gaChannelRows.reduce((sum, r) => sum + asNumber(r.sessions), 0) || 1;
+      const channelRowsFormatted = gaChannelRows.map(row => ({
+        ...row,
+        sessionsDisplay: formatNumber(asNumber(row.sessions)),
+        newUsersDisplay: formatNumber(asNumber(row.newUsers)),
+        share: `${((asNumber(row.sessions) / channelTotal) * 100).toFixed(1)}%`
+      }));
+      return wrapper(
+        <>
+          <div className="report-gsc-strip">
+            <div><span>Sessions (Phiên)</span><b>{formatNumber(gaSessions)}</b></div>
+            <div><span>Total users</span><b>{formatNumber(gaUsers)}</b></div>
+            <div><span>New users</span><b>{formatNumber(gaNewUsers)}</b></div>
+            {gaViews > 0 && <div><span>Tổng lượt xem trang</span><b>{formatNumber(gaViews)}</b></div>}
+            <div><span>Engagement rate</span><b>{gaEngagementRate.toFixed(2)}%</b></div>
+            <div><span>Key events / Conversions</span><b>{formatNumber(gaConversions)}</b></div>
+          </div>
+          {channelRowsFormatted.length > 0 && (
+            <div style={{ marginTop: "18px" }}>
+              <h4 style={{ margin: "0 0 10px", fontSize: "14px", color: "var(--report-navy)" }}>Phân tích traffic theo kênh (Channel Group)</h4>
+              <Table
+                rows={channelRowsFormatted}
+                columns={[
+                  { key: "channel", label: "Kênh traffic" },
+                  { key: "sessionsDisplay", label: "Số phiên (Sessions)" },
+                  { key: "share", label: "Tỷ trọng" },
+                  { key: "newUsersDisplay", label: "Người dùng mới" },
+                ]}
+                baseDomain={settings.domain}
+              />
+            </div>
+          )}
+        </>
+      );
+    }
+    if (section.key === "keywords") return wrapper(<Table rows={topQueries.map(row => ({ ...row, ctr: `${asNumber(row.ctr).toFixed(2)}%` }))} columns={[{ key: "keyword", label: "Từ khóa" }, { key: "page", label: "Trang đích" }, { key: "position", label: "Vị trí" }, { key: "clicks", label: "Clicks" }, { key: "impressions", label: "Hiển thị" }, { key: "ctr", label: "CTR" }]} baseDomain={settings.domain} />);
+    if (section.key === "pages") {
+      const totalPageViews = gaPageRows.reduce((sum, row) => sum + asNumber(row.views), 0) || 1;
+      const gaPagesFormatted = gaPageRows.slice(0, 15).map((row, idx) => ({
+        ...row,
+        rank: `#${idx + 1}`,
+        viewsDisplay: formatNumber(asNumber(row.views)),
+        share: `${((asNumber(row.views) / totalPageViews) * 100).toFixed(1)}%`
+      }));
+      return wrapper(
+        <>
+          {gaPagesFormatted.length > 0 ? (
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+                <h4 style={{ margin: 0, fontSize: "14px", color: "var(--report-navy)" }}>Top trang có lượt xem cao nhất (Google Analytics 4)</h4>
+                <small style={{ color: "#748198", fontSize: "11px" }}>Ghi nhận {gaPageRows.length} trang · {formatNumber(totalPageViews)} lượt xem</small>
+              </div>
+              <Table
+                rows={gaPagesFormatted}
+                columns={[
+                  { key: "rank", label: "STT" },
+                  { key: "page", label: "Tiêu đề trang" },
+                  { key: "viewsDisplay", label: "Số lượt xem (Views)" },
+                  { key: "share", label: "Tỷ trọng (%)" },
+                ]}
+                baseDomain={settings.domain}
+              />
+            </div>
+          ) : null}
+
+          {topPages.length > 0 ? (
+            <div style={{ marginTop: gaPagesFormatted.length > 0 ? "24px" : "0" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+                <h4 style={{ margin: 0, fontSize: "14px", color: "var(--report-navy)" }}>Landing page nhận nhiều lượt nhấp tự nhiên (Google Search Console)</h4>
+              </div>
+              <Table
+                rows={topPages}
+                columns={[
+                  { key: "page", label: "Landing page" },
+                  { key: "clicks", label: "Clicks" },
+                  { key: "impressions", label: "Hiển thị" },
+                  { key: "position", label: "Vị trí TB" },
+                  { key: "ctr", label: "CTR" },
+                ]}
+                baseDomain={settings.domain}
+              />
+            </div>
+          ) : !gaPagesFormatted.length ? (
+            <p className="report-empty">Không có dữ liệu trang trong kỳ báo cáo.</p>
+          ) : null}
+        </>
+      );
+    }
+    if (section.key === "tasks") return wrapper(<Table rows={completedTasks} columns={[{ key: "title", label: "Công việc" }, { key: "group", label: "Nhóm" }, { key: "owner", label: "Phụ trách" }, { key: "completedDate", label: "Hoàn thành" }, { key: "actual", label: "Giờ" }, { key: "result", label: "Kết quả" }]} baseDomain={settings.domain} />);
+    if (section.key === "worklogs") return wrapper(<><Table rows={snapshot.worklogs || []} columns={[{ key: "date", label: "Ngày" }, { key: "title", label: "Công việc" }, { key: "group", label: "Nhóm" }, { key: "owner", label: "Phụ trách" }, { key: "hours", label: "Giờ" }, { key: "result", label: "Kết quả" }]} baseDomain={settings.domain} /><EvidenceGallery rows={snapshot.worklogs || []} /></>);
+    if (section.key === "content") return wrapper(<Table rows={snapshot.content || []} columns={[{ key: "topic", label: "Nội dung" }, { key: "keyword", label: "Từ khóa" }, { key: "url", label: "URL" }, { key: "owner", label: "Phụ trách" }, { key: "publishDate", label: "Ngày đăng" }, { key: "status", label: "Trạng thái" }]} baseDomain={settings.domain} />);
+    if (section.key === "audits") return wrapper(<><Table rows={snapshot.audits || []} columns={[{ key: "issue", label: "Hạng mục" }, { key: "url", label: "URL" }, { key: "severity", label: "Mức độ" }, { key: "owner", label: "Xử lý" }, { key: "completed", label: "Hoàn tất" }, { key: "status", label: "Trạng thái" }]} baseDomain={settings.domain} /><BeforeAfterGallery rows={snapshot.audits || []} /></>);
+    if (section.key === "indexing") return wrapper(<Table rows={snapshot.indexing || []} columns={[{ key: "url", label: "URL" }, { key: "type", label: "Loại" }, { key: "status", label: "Trạng thái" }, { key: "checked", label: "Kiểm tra" }, { key: "reason", label: "Lý do" }, { key: "action", label: "Hành động" }]} baseDomain={settings.domain} />);
+    if (section.key === "backlinks") return wrapper(<Table rows={snapshot.backlinks || []} columns={[{ key: "domain", label: "Domain" }, { key: "targetUrl", label: "URL đích" }, { key: "anchor", label: "Anchor" }, { key: "owner", label: "Phụ trách" }, { key: "placed", label: "Ngày đặt" }, { key: "status", label: "Trạng thái" }]} baseDomain={settings.domain} />);
+    if (section.key === "expenses") return wrapper(<><Table rows={snapshot.expenses || []} columns={[{ key: "date", label: "Ngày" }, { key: "category", label: "Hạng mục" }, { key: "description", label: "Nội dung" }, { key: "vendor", label: "Nhà cung cấp" }, { key: "amount", label: "Số tiền" }, { key: "status", label: "Trạng thái" }]} baseDomain={settings.domain} /><p className="report-total">Tổng chi phí: <b>{formatMoney((snapshot.expenses || []).reduce((sum, row) => sum + asNumber(row.amount), 0))}</b></p></>);
     if (section.key === "monthlyReview") return wrapper(<div className="report-narrative">{monthlyReview.split("\n").map((line, index) => <p key={index}>{line || <br />}</p>)}</div>);
     if (section.key === "nextPlan") return wrapper(<div className="report-narrative">{nextPlan.split("\n").map((line, index) => <p key={index}>{line || <br />}</p>)}</div>);
     return wrapper(<div className="report-narrative">{notes ? notes.split("\n").map((line, index) => <p key={index}>{line || <br />}</p>) : <p>Không có ghi chú bổ sung.</p>}</div>);
   };
 
+  const floatingToc = visibleSections.length > 1 ? (
+    <aside className="report-toc-widget print-hide" aria-label="Mục lục báo cáo">
+      {!tocOpen ? (
+        <button
+          type="button"
+          className="report-toc-toggle-button"
+          onClick={() => setTocOpen(true)}
+          title="Mở mục lục báo cáo"
+        >
+          <span className="report-toc-icon">📑</span>
+          <span>Mục lục</span>
+          <span className="report-toc-count">{visibleSections.length}</span>
+        </button>
+      ) : (
+        <div className="report-toc-panel">
+          <div className="report-toc-header">
+            <div className="report-toc-title">
+              <span style={{ fontSize: "16px" }}>📑</span>
+              <div>
+                <b>MỤC LỤC BÁO CÁO</b>
+                <small>{visibleSections.length} mục có dữ liệu</small>
+              </div>
+            </div>
+            <button
+              type="button"
+              className="report-toc-close"
+              onClick={() => setTocOpen(false)}
+              aria-label="Đóng mục lục"
+              title="Đóng mục lục"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="report-toc-list">
+            {visibleSections.map((section, idx) => {
+              const isActive = activeSectionKey === section.key;
+              return (
+                <button
+                  key={section.key}
+                  type="button"
+                  className={`report-toc-item ${isActive ? "active" : ""}`}
+                  onClick={() => {
+                    scrollToSection(section.key);
+                  }}
+                >
+                  <span className="report-toc-badge">{String(idx + 1).padStart(2, "0")}</span>
+                  <span className="report-toc-text">{section.title}</span>
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              className="report-toc-item"
+              onClick={scrollToSignatures}
+            >
+              <span className="report-toc-badge">✓</span>
+              <span className="report-toc-text">Xác nhận & chữ ký</span>
+            </button>
+          </div>
+          <div className="report-toc-footer">
+            <button type="button" className="report-toc-action" onClick={scrollToTop}>
+              ↑ Lên đầu trang
+            </button>
+            <button type="button" className="report-toc-action" onClick={() => setTocOpen(false)}>
+              Thu gọn ▾
+            </button>
+          </div>
+        </div>
+      )}
+    </aside>
+  ) : null;
+
   const reportDocument = <article className="report-document">
-      <header className="report-cover"><div className="report-cover-mark">SEO</div><div><p>BÁO CÁO HIỆU SUẤT ĐỊNH KỲ</p><h1>{title}</h1><h2>{settings.name}</h2><a href={settings.domain}>{settings.domain}</a></div><dl><div><dt>Thời gian báo cáo</dt><dd>{formatDate(from)} – {formatDate(to)}</dd></div><div><dt>Người lập</dt><dd>{author || settings.owner}</dd></div><div><dt>Email</dt><dd>{settings.email || "—"}</dd></div><div><dt>Ngày tạo</dt><dd>{formatDateTime(createdAt, settings.timezone)}</dd></div><div><dt>Cập nhật / xuất bản</dt><dd>{formatDateTime(generatedAt, settings.timezone)}</dd></div></dl></header>
+      <header className="report-cover"><div className="report-cover-mark">SEO</div><div><p>BÁO CÁO HIỆU SUẤT ĐỊNH KỲ</p><h1>{title}</h1><h2>{settings.name}</h2><a href={settings.domain.startsWith("http") ? settings.domain : `https://${settings.domain}`} target="_blank" rel="noopener noreferrer">{settings.domain}</a></div><dl><div><dt>Thời gian báo cáo</dt><dd>{formatDate(from)} – {formatDate(to)}</dd></div><div><dt>Người lập</dt><dd>{author || settings.owner}</dd></div><div><dt>Email</dt><dd>{settings.email || "—"}</dd></div><div><dt>Ngày tạo</dt><dd>{formatDateTime(createdAt, settings.timezone)}</dd></div><div><dt>Cập nhật / xuất bản</dt><dd>{formatDateTime(generatedAt, settings.timezone)}</dd></div></dl></header>
       {sections.map(renderSection)}
       <SignatureBlock signatures={signatures} timezone={settings.timezone} />
       <footer className="report-footer"><b>{settings.name}</b><span>{settings.domain} · Báo cáo được tạo lúc {formatDateTime(generatedAt, settings.timezone)}</span></footer>
     </article>;
 
-  if (viewOnlyReport) return <div className="report-builder public-report-document">{reportDocument}</div>;
+  if (viewOnlyReport) return <div className="report-builder public-report-document">{floatingToc}{reportDocument}</div>;
 
   if (mode === "list") return <div className="report-builder">
     <section className="page-heading"><div><p className="eyebrow">SEO REPORT LIBRARY</p><h2>Báo cáo SEO</h2><p className="muted">Quản lý các báo cáo đã tạo, mở trang xem hoặc sao chép đường dẫn gửi khách hàng.</p></div><button className="primary" onClick={newReport}>＋ Tạo báo cáo mới</button></section>
@@ -331,6 +663,7 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
       <div className="report-form-actions"><button className="secondary" onClick={refreshSuggestions}>Tạo lại gợi ý</button><button className="primary" onClick={() => void saveReport()}>{editingId ? "Cập nhật báo cáo" : "Lưu báo cáo"}</button></div>
     </section>
     <div className="report-preview-label print-hide"><span>XEM TRƯỚC</span><p>Bản xem trước chỉ hiển thị trong lúc tạo. Sau khi lưu, dùng nút “Xem” ở danh sách để mở trang gửi khách.</p></div>
+    {floatingToc}
     {reportDocument}
   </div>;
 }
