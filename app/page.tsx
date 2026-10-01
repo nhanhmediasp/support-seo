@@ -6,7 +6,7 @@ import ReportBuilder, { SavedSeoReport } from "./report-builder";
 
 type Row = Record<string, string | number | boolean> & { id: string };
 type Field = { key: string; label: string; type?: "text" | "number" | "date" | "select" | "textarea" | "checkbox"; options?: string[]; required?: boolean };
-type ModuleKey = "tasks" | "content" | "calendar" | "onpage" | "audits" | "indexing" | "backlinks" | "entities" | "seeding" | "rankings" | "worklogs" | "changes" | "personnel" | "expenses";
+type ModuleKey = "tasks" | "content" | "calendar" | "onpage" | "audits" | "indexing" | "backlinks" | "entities" | "seeding" | "rankings" | "analytics" | "worklogs" | "changes" | "personnel" | "expenses";
 type SiteSettings = { name: string; domain: string; owner: string; email: string; timezone: string; reports?: SavedSeoReport[] };
 type AppData = Record<ModuleKey, Row[]>;
 type ConfirmConfig = { eyebrow: string; title: string; description: string; confirmLabel: string; danger?: boolean; onConfirm: () => void };
@@ -53,6 +53,7 @@ const seedData: AppData = {
   entities: [{ id: "ENTITY-001", name: "Air & Sea Global Google Business", type: "Google Business Profile", platform: "Google", url: "", account: "", nap: "Consistent", website: "https://airandseaglobal.vn", verified: "Verified", indexed: "Indexed", updated: "2026-09-07", notes: "" }],
   seeding: [{ id: "SEED-001", platform: "Facebook Group", postUrl: "", content: "Chia sẻ kinh nghiệm xin visa", account: "", posted: "2026-09-07", targetUrl: "/blog/visa-singapore", status: "Live", removed: false, checked: "2026-09-07" }],
   rankings: [{ id: "KW-001", keyword: "visa Singapore", page: "/dich-vu-visa-singapore", position: 4, previous: 6, clicks: 284, impressions: 4200, ctr: 6.76, date: "2026-09-07" }],
+  analytics: [],
   worklogs: [{ id: "LOG-001", date: "2026-09-07", taskId: "TASK-001", group: "Technical", description: "Rà soát URL chưa index", start: "08:30", end: "10:00", hours: 1.5, result: "Đã cập nhật 12 URL", blockers: "", nextStep: "Kiểm tra canonical", document: "", completion: 70 }],
   changes: [{ id: "CHANGE-001", date: "2026-09-07 09:42", action: "Khởi tạo workspace", entity: "Hệ thống SEO", user: "SEO Freelancer", detail: "Tạo dữ liệu ban đầu" }],
   personnel: [{ id: "PERSON-001", name: "SEO Freelancer", role: "SEO Lead", email: "", phone: "", status: "Active", note: "" }],
@@ -61,7 +62,7 @@ const seedData: AppData = {
 
 const emptyData = (): AppData => ({
   tasks: [], content: [], calendar: [], onpage: [], audits: [], indexing: [],
-  backlinks: [], entities: [], seeding: [], rankings: [], worklogs: [], changes: [], personnel: [], expenses: [],
+  backlinks: [], entities: [], seeding: [], rankings: [], analytics: [], worklogs: [], changes: [], personnel: [], expenses: [],
 });
 const normalizeKeywordLines = (value: unknown) => String(value ?? "").split(/[\n,;]+/).map(item => item.trim()).filter(Boolean).join("\n");
 const keywordItems = (value: unknown) => normalizeKeywordLines(value).split("\n").filter(Boolean);
@@ -126,6 +127,7 @@ const fields: Record<ModuleKey, Field[]> = {
   entities: [{ key: "name", label: "Entity name", required: true }, { key: "owner", label: "Người phụ trách" }, { key: "type", label: "Loại", type: "select", options: ["Google Business Profile", "Social profile", "Directory", "Partner", "PR", "Expert profile", "Local citation"] }, { key: "platform", label: "Nền tảng" }, { key: "url", label: "URL" }, { key: "account", label: "Email/Tài khoản" }, { key: "nap", label: "NAP consistency", type: "select", options: ["Consistent", "Needs review", "Incorrect"] }, { key: "website", label: "Website" }, { key: "verified", label: "Xác minh", type: "select", options: ["Draft", "Pending", "Complete", "Verified"] }, { key: "indexed", label: "Index", type: "select", options: ["Indexed", "Not indexed", "Unknown"] }, { key: "updated", label: "Ngày cập nhật", type: "date" }, { key: "notes", label: "Ghi chú", type: "textarea" }],
   seeding: [{ key: "platform", label: "Nền tảng", required: true }, { key: "owner", label: "Người phụ trách" }, { key: "postUrl", label: "Link bài seeding" }, { key: "content", label: "Nội dung seeding", type: "textarea" }, { key: "account", label: "Tài khoản" }, { key: "posted", label: "Ngày đăng", type: "date" }, { key: "targetUrl", label: "Link trỏ về" }, { key: "status", label: "Trạng thái", type: "select", options: ["Draft", "Live", "Pending check", "Removed"] }, { key: "removed", label: "Đã bị xóa", type: "checkbox" }, { key: "checked", label: "Kiểm tra gần nhất", type: "date" }],
   rankings: [{ key: "keyword", label: "Keyword", required: true }, { key: "owner", label: "Người phụ trách" }, { key: "page", label: "Landing page" }, { key: "position", label: "Vị trí hiện tại", type: "number" }, { key: "previous", label: "Vị trí trước", type: "number" }, { key: "clicks", label: "Clicks", type: "number" }, { key: "impressions", label: "Impressions", type: "number" }, { key: "ctr", label: "CTR (%)", type: "number" }, { key: "date", label: "Ngày dữ liệu", type: "date" }],
+  analytics: [{ key: "date", label: "Ngày dữ liệu", type: "date", required: true }, { key: "channel", label: "Kênh traffic", type: "select", options: ["Organic Search", "Direct", "Referral", "Organic Social", "Paid Search", "Email", "Other"] }, { key: "sessions", label: "Sessions", type: "number" }, { key: "users", label: "Total users", type: "number" }, { key: "newUsers", label: "New users", type: "number" }, { key: "engagedSessions", label: "Engaged sessions", type: "number" }, { key: "engagementRate", label: "Engagement rate (%)", type: "number" }, { key: "conversions", label: "Key events / Conversions", type: "number" }, { key: "revenue", label: "Revenue", type: "number" }, { key: "source", label: "Nguồn dữ liệu" }, { key: "notes", label: "Ghi chú", type: "textarea" }],
   worklogs: [{ key: "occurredAt", label: "Ngày phát sinh", type: "text", required: true }, { key: "completedAt", label: "Thời gian hoàn thành" }, { key: "title", label: "Tiêu đề" }, { key: "owner", label: "Người phụ trách" }, { key: "group", label: "Nhóm công việc", type: "select", options: ["Nghiên cứu từ khóa", "Content", "Technical SEO", "On-page", "Off-page", "Local SEO", "Entity SEO", "Indexing", "Social/Seeding", "Analytics & Reporting", "Khác"] }, { key: "description", label: "Nội dung thực hiện", type: "textarea", required: true }, { key: "result", label: "Kết quả", type: "textarea" }, { key: "status", label: "Trạng thái", type: "select", options: ["Chưa làm", "Đang làm", "Đã xong"] }, { key: "priority", label: "Mức độ", type: "select", options: ["Low", "Medium", "High", "Critical"] }, { key: "imageUrl", label: "Ảnh đính kèm", type: "textarea" }, { key: "document", label: "Link tài liệu" }],
   changes: [{ key: "date", label: "Thời gian" }, { key: "action", label: "Hành động" }, { key: "entity", label: "Đối tượng" }, { key: "user", label: "Người thực hiện" }, { key: "detail", label: "Chi tiết" }],
   personnel: [{ key: "name", label: "Họ tên", required: true }, { key: "role", label: "Vai trò" }, { key: "email", label: "Email" }, { key: "phone", label: "Số điện thoại" }, { key: "status", label: "Trạng thái", type: "select", options: ["Active", "Inactive"] }, { key: "updated", label: "Ngày cập nhật", type: "date" }, { key: "note", label: "Ghi chú", type: "textarea" }],
@@ -143,6 +145,7 @@ const moduleMeta: Record<ModuleKey, { title: string; eyebrow: string; descriptio
   entities: { title: "Entity SEO", eyebrow: "BRAND ENTITY", description: "Theo dõi hồ sơ thương hiệu, NAP, xác minh và index.", columns: ["name", "owner", "type", "platform", "nap", "verified", "indexed", "updated"], prefix: "ENTITY" },
   seeding: { title: "Seeding", eyebrow: "DISTRIBUTION", description: "Theo dõi bài seeding, tài khoản, link đích và tình trạng tồn tại.", columns: ["platform", "owner", "postUrl", "targetUrl", "posted", "status", "removed", "checked"], prefix: "SEED" },
   rankings: { title: "Keyword Rankings", eyebrow: "SEARCH PERFORMANCE", description: "Quản lý vị trí, clicks, impressions và CTR.", columns: ["keyword", "owner", "page", "position", "previous", "clicks", "impressions", "ctr", "date"], prefix: "KW" },
+  analytics: { title: "Google Analytics", eyebrow: "WEBSITE TRAFFIC", description: "Nhập thủ công hoặc tải CSV GA4 để theo dõi sessions, users, tương tác và chuyển đổi.", columns: ["date", "channel", "sessions", "users", "newUsers", "engagedSessions", "engagementRate", "conversions", "revenue"], prefix: "GA" },
   worklogs: { title: "Nhật ký làm việc", eyebrow: "DAILY EXECUTION", description: "Tự động ghi nhận công việc từ các mục SEO và liên kết về bản ghi gốc.", columns: ["occurredDisplay", "completedAt", "title", "description", "status", "priority", "sourceLabel", "owner"], prefix: "LOG" },
   changes: { title: "Change Log", eyebrow: "AUDIT TRAIL", description: "Lịch sử các thay đổi quan trọng trong hệ thống.", columns: ["date", "action", "entity", "user", "detail"], prefix: "CHANGE" },
   personnel: { title: "Nhân sự", eyebrow: "TEAM MANAGEMENT", description: "Quản lý người phụ trách để chọn nhanh khi tạo task và nội dung.", columns: ["name", "role", "email", "phone", "status", "updated", "note"], prefix: "PERSON" },
@@ -160,6 +163,7 @@ const moduleDateKeys: Record<ModuleKey, string[]> = {
   entities: ["updated"],
   seeding: ["checked", "posted"],
   rankings: ["date"],
+  analytics: ["date"],
   worklogs: ["date"],
   changes: ["date"],
   personnel: ["updated"],
@@ -188,7 +192,7 @@ const navGroups: { label: string; items: [string, string][] }[] = [
   { label: "Điều hành", items: [["tasks", "Công việc"], ["content", "Nội dung"], ["calendar", "Lịch đăng bài"], ["worklogs", "Nhật ký làm việc"], ["personnel", "Nhân sự"], ["expenses", "Chi phí phát sinh"]] },
   { label: "SEO On-site", items: [["onpage", "On-page Checklist"], ["audits", "Technical Audit"], ["indexing", "Index Tracking"]] },
   { label: "SEO Off-site", items: [["backlinks", "Backlinks"], ["entities", "Entity SEO"], ["seeding", "Seeding"]] },
-  { label: "Dữ liệu & báo cáo", items: [["rankings", "Keyword Rankings"], ["reports", "Báo cáo KPI"], ["changes", "Change Log"]] },
+  { label: "Dữ liệu & báo cáo", items: [["rankings", "Keyword Rankings"], ["analytics", "Google Analytics"], ["reports", "Báo cáo KPI"], ["changes", "Change Log"]] },
 ];
 const routeNames: Record<string, string> = Object.fromEntries(navGroups.flatMap(group => group.items));
 const pagePaths: Record<string, string> = { dashboard: "/", settings: "/settings", ...Object.fromEntries(Object.keys(routeNames).filter(key => key !== "dashboard").map(key => [key, `/${key}`])) };
@@ -548,7 +552,7 @@ export default function Home() {
       <header className="topbar"><div><div className="breadcrumb">{settings.name.toUpperCase()} <span>/</span> {new Date().toLocaleDateString("vi-VN")}</div><h1>{active === "settings" ? "Cài đặt hệ thống" : active === "reports" ? "Báo cáo KPI" : active === "dashboard" ? "Dashboard" : moduleMeta[moduleKey]?.title}</h1></div><div className="top-actions"><button className="automation" onClick={runAutomation}>Chạy tự động hóa</button><div className="account-wrap"><button className="account-button" onClick={() => setAccountMenuOpen(value => !value)}><span className="account-avatar">{supabaseConfigured && accountEmail ? accountEmail.slice(0, 1).toUpperCase() : "SEO"}</span><span><b>{supabaseConfigured && accountEmail ? accountEmail : "Local workspace"}</b><small>{supabaseConfigured ? "Tài khoản Google/Supabase" : "Chưa đăng nhập cloud"}</small></span><strong>⌄</strong></button>{accountMenuOpen && <div className="account-menu">{supabaseConfigured ? <><div className="account-menu-head"><b>{accountEmail || "Tài khoản hiện tại"}</b><small>Đang đăng nhập</small></div><button onClick={() => navigate("settings")}>Cài đặt tài khoản</button><button className="logout-button" onClick={logout}>Đăng xuất</button></> : <><div className="account-menu-head"><b>Local workspace</b><small>Dữ liệu đang lưu trên thiết bị này</small></div><button onClick={() => { window.location.href = "/auth"; }}>Đăng nhập / Đăng ký</button></>}</div>}</div></div></header>
       <div className="content-wrap">
         {active === "dashboard" && <Dashboard data={data} settings={settings} setActive={navigate} runAutomation={runAutomation} />}
-        {active === "reports" && <ReportBuilder data={data} settings={settings} savedReports={settings.reports || []} onSaveReports={reports => setSettings({ ...settings, reports })} notify={setToast} />}
+        {active === "reports" && <ReportBuilder data={data} settings={settings} savedReports={settings.reports || []} onSaveReports={reports => setSettings({ ...settings, reports })} notify={setToast} onNavigate={navigate} projectId={activeProjectId} />}
         {active === "settings" && <Settings data={data} setData={setData} settings={settings} setSettings={setSettings} notify={setToast} requestConfirm={setConfirmDialog} />}
         {moduleMeta[moduleKey] && <ModuleView module={moduleKey} rows={data[moduleKey]} setRows={rows => saveRows(moduleKey, rows)} onChange={addChange} onRecordSaved={syncActivityLog} onOpenSource={openSourceRecord} focusRecordId={recordTarget?.module === moduleKey ? recordTarget.id : ""} onFocusHandled={() => setRecordTarget(null)} siteUrl={settings.domain} personnel={data.personnel} />}
       </div>
@@ -607,6 +611,7 @@ function ModuleView({ module, rows, setRows, onChange, onRecordSaved, onOpenSour
   const [gallery, setGallery] = useState<{ images: string[]; index: number; title: string } | null>(null);
   const [open, setOpen] = useState(false);
   const [gscStatus, setGscStatus] = useState("");
+  const [importDate, setImportDate] = useState(today());
   const [rankBand, setRankBand] = useState("All");
   const [rankSort, setRankSort] = useState("position");
   const [rankDirection, setRankDirection] = useState<"asc" | "desc">("asc");
@@ -704,7 +709,8 @@ function ModuleView({ module, rows, setRows, onChange, onRecordSaved, onOpenSour
   const importCsv = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]; if (!file) return;
     const lines = (await file.text()).replace(/^\uFEFF/, "").split(/\r?\n/).filter(Boolean);
-    const headers = parseCsvLine(lines[0]);
+    let headers = parseCsvLine(lines[0]);
+    let dataLines = lines.slice(1);
     const imported = module === "rankings" ? (() => {
       const headerMap = new Map(headers.map((header, index) => [normalizeCsvHeader(header), index]));
       const findColumn = (...names: string[]) => names.map(name => headerMap.get(normalizeCsvHeader(name))).find(index => index !== undefined);
@@ -721,14 +727,44 @@ function ModuleView({ module, rows, setRows, onChange, onRecordSaved, onOpenSour
         return normalizeRow(module, {
           id: uid(meta.prefix), keyword: values[keywordIndex] || "", page: pageIndex === undefined ? "" : values[pageIndex] || "",
           position, previous: position, clicks: csvNumber(values[clicksIndex]), impressions: csvNumber(values[impressionsIndex]),
-          ctr: csvNumber(values[ctrIndex]), date: today(), source: file.name,
+          ctr: csvNumber(values[ctrIndex]), date: importDate, source: file.name,
         });
       });
-    })() : lines.slice(1).map(line => { const values = parseCsvLine(line); const row: Row = { id: uid(meta.prefix) }; headers.forEach((key, index) => row[key] = values[index] ?? ""); return normalizeRow(module, row); });
-    if (!imported) { setGscStatus("Không nhận diện được đủ cột GSC: truy vấn, nhấp, hiển thị, CTR, vị trí."); event.target.value = ""; return; }
+    })() : module === "analytics" ? (() => {
+      const headerRowIndex = lines.findIndex(line => parseCsvLine(line).some(header => ["sessions", "phien", "so phien"].includes(normalizeCsvHeader(header))));
+      if (headerRowIndex < 0) return null;
+      headers = parseCsvLine(lines[headerRowIndex]);
+      dataLines = lines.slice(headerRowIndex + 1);
+      const headerMap = new Map(headers.map((header, index) => [normalizeCsvHeader(header), index]));
+      const findColumn = (...names: string[]) => names.map(name => headerMap.get(normalizeCsvHeader(name))).find(index => index !== undefined);
+      const dateIndex = findColumn("Date", "Ngày", "Day");
+      const channelIndex = findColumn("Session default channel group", "Default channel group", "Channel", "Kênh traffic", "Nhóm kênh mặc định của phiên");
+      const sessionsIndex = findColumn("Sessions", "Phiên", "Số phiên");
+      const usersIndex = findColumn("Total users", "Users", "Tổng số người dùng", "Người dùng");
+      const newUsersIndex = findColumn("New users", "Người dùng mới");
+      const engagedIndex = findColumn("Engaged sessions", "Phiên có sự tương tác");
+      const engagementRateIndex = findColumn("Engagement rate", "Tỷ lệ tương tác");
+      const conversionsIndex = findColumn("Key events", "Conversions", "Sự kiện chính", "Lượt chuyển đổi");
+      const revenueIndex = findColumn("Total revenue", "Revenue", "Tổng doanh thu", "Doanh thu");
+      if (sessionsIndex === undefined) return null;
+      const valueAt = (values: string[], index: number | undefined) => index === undefined ? "" : values[index] || "";
+      return dataLines.map(line => {
+        const values = parseCsvLine(line);
+        const channel = valueAt(values, channelIndex) || "Organic Search";
+        const rawRate = valueAt(values, engagementRateIndex);
+        const rate = csvNumber(rawRate);
+        return normalizeRow(module, {
+          id: uid(meta.prefix), date: valueAt(values, dateIndex) || importDate, channel,
+          sessions: csvNumber(valueAt(values, sessionsIndex)), users: csvNumber(valueAt(values, usersIndex)), newUsers: csvNumber(valueAt(values, newUsersIndex)),
+          engagedSessions: csvNumber(valueAt(values, engagedIndex)), engagementRate: rawRate.includes("%") || rate > 1 ? rate : rate * 100,
+          conversions: csvNumber(valueAt(values, conversionsIndex)), revenue: csvNumber(valueAt(values, revenueIndex)), source: file.name,
+        });
+      }).filter(row => String(row.channel || "").toLowerCase() !== "total" && ["sessions", "users", "newUsers", "engagedSessions", "conversions", "revenue"].some(key => Number(row[key] || 0) !== 0));
+    })() : dataLines.map(line => { const values = parseCsvLine(line); const row: Row = { id: uid(meta.prefix) }; headers.forEach((key, index) => row[key] = values[index] ?? ""); return normalizeRow(module, row); });
+    if (!imported) { setGscStatus(module === "analytics" ? "Không nhận diện được cột Sessions trong file GA4." : "Không nhận diện được đủ cột GSC: truy vấn, nhấp, hiển thị, CTR, vị trí."); event.target.value = ""; return; }
     setRows(module === "rankings" ? imported : [...imported, ...rows]);
-    onChange(module === "rankings" ? "Import GSC CSV" : "Import CSV", meta.title, `${imported.length} bản ghi`);
-    if (module === "rankings") setGscStatus(`Đã nhập ${imported.length} keyword từ ${file.name}`);
+    onChange(module === "rankings" ? "Import GSC CSV" : module === "analytics" ? "Import GA4 CSV" : "Import CSV", meta.title, `${imported.length} bản ghi`);
+    if (module === "rankings" || module === "analytics") setGscStatus(`Đã nhập ${imported.length} dòng từ ${file.name}`);
     event.target.value = "";
   };
   const syncSearchConsole = async () => {
@@ -744,9 +780,9 @@ function ModuleView({ module, rows, setRows, onChange, onRecordSaved, onOpenSour
   const rowActions = (row: Row) => <>{module === "worklogs" && row.sourceModule && row.sourceId && <button className="table-action source-link" onClick={() => onOpenSource(String(row.sourceModule) as ModuleKey, String(row.sourceId))}>Xem công việc →</button>}<button className="table-action" onClick={() => setViewing(row)}>Chi tiết</button><button className="table-action" onClick={() => { setEditing(row); setOpen(true); }}>Sửa</button><button className="table-action delete" onClick={() => remove(row)}>Xóa</button></>;
 
   return <>
-    <section className="page-heading"><div><p className="eyebrow">{meta.eyebrow}</p><h2>{meta.title}</h2><p className="muted">{meta.description}</p>{module === "rankings" && gscStatus && <p className="sync-status">{gscStatus}</p>}</div><div className="button-row">{module === "rankings" && <><button className="secondary" onClick={() => { window.location.href = "/api/search-console/auth?returnTo=/rankings"; }}>Kết nối GSC</button><button className="secondary" onClick={syncSearchConsole}>↻ Đồng bộ GSC</button></>}<button className="primary" onClick={() => { setEditing(null); setOpen(true); }}>＋ Thêm bản ghi</button></div></section>
+    <section className="page-heading"><div><p className="eyebrow">{meta.eyebrow}</p><h2>{meta.title}</h2><p className="muted">{meta.description}</p>{(module === "rankings" || module === "analytics") && gscStatus && <p className="sync-status">{gscStatus}</p>}</div><div className="button-row">{module === "rankings" && <><button className="secondary" onClick={() => { window.location.href = "/api/search-console/auth?returnTo=/rankings"; }}>Kết nối GSC</button><button className="secondary" onClick={syncSearchConsole}>↻ Đồng bộ GSC</button></>}<button className="primary" onClick={() => { setEditing(null); setOpen(true); }}>＋ Thêm bản ghi</button></div></section>
     {dateKeys.length > 0 && <DateFilterBar preset={datePreset} from={dateFrom} to={dateTo} onPreset={applyDatePreset} onFrom={value => { setDatePreset("custom"); setDateFrom(value); }} onTo={value => { setDatePreset("custom"); setDateTo(value); }} />}
-    <div className="toolbar"><div className="toolbar-left"><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Tìm kiếm dữ liệu…" />{statuses.length > 0 && <select value={status} onChange={event => setStatus(event.target.value)}><option>All</option>{statuses.map(item => <option key={item}>{item}</option>)}</select>}{module === "audits" && auditCategories.length > 0 && <select aria-label="Lọc theo nhóm lỗi" value={auditCategory} onChange={event => setAuditCategory(event.target.value)}><option value="All">Tất cả nhóm lỗi</option>{auditCategories.map(item => <option key={item}>{item}</option>)}</select>}{module === "worklogs" && workGroups.length > 0 && <select value={workGroup} onChange={event => setWorkGroup(event.target.value)}><option value="All">Tất cả nhóm công việc</option>{workGroups.map(item => <option key={item}>{item}</option>)}</select>}{module === "rankings" && <><select value={rankBand} onChange={event => setRankBand(event.target.value)}><option value="All">Tất cả thứ hạng</option><option value="top3">Top 3</option><option value="top10">Top 10</option><option value="top20">Top 20</option><option value="21-50">Top 21–50</option><option value="51-100">Top 51–100</option><option value="100+">Ngoài Top 100</option><option value="unknown">Chưa có thứ hạng</option></select><select value={rankSort} onChange={event => setRankSort(event.target.value)}><option value="position">Sắp xếp: Vị trí</option><option value="keyword">Sắp xếp: Keyword</option><option value="clicks">Sắp xếp: Clicks</option><option value="impressions">Sắp xếp: Impressions</option><option value="ctr">Sắp xếp: CTR</option></select><button className="secondary sort-direction" onClick={() => setRankDirection(current => current === "asc" ? "desc" : "asc")}>{rankDirection === "asc" ? "Tăng dần ↑" : "Giảm dần ↓"}</button></>}</div><div className="button-row"><input ref={fileRef} hidden type="file" accept=".csv" onChange={importCsv} /><button className="secondary" onClick={() => fileRef.current?.click()}>{module === "rankings" ? "Nhập CSV GSC" : "Nhập CSV"}</button><button className="secondary" onClick={exportCsv}>Xuất CSV</button></div></div>
+    <div className="toolbar"><div className="toolbar-left"><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Tìm kiếm dữ liệu…" />{statuses.length > 0 && <select value={status} onChange={event => setStatus(event.target.value)}><option>All</option>{statuses.map(item => <option key={item}>{item}</option>)}</select>}{module === "audits" && auditCategories.length > 0 && <select aria-label="Lọc theo nhóm lỗi" value={auditCategory} onChange={event => setAuditCategory(event.target.value)}><option value="All">Tất cả nhóm lỗi</option>{auditCategories.map(item => <option key={item}>{item}</option>)}</select>}{module === "worklogs" && workGroups.length > 0 && <select value={workGroup} onChange={event => setWorkGroup(event.target.value)}><option value="All">Tất cả nhóm công việc</option>{workGroups.map(item => <option key={item}>{item}</option>)}</select>}{module === "rankings" && <><select value={rankBand} onChange={event => setRankBand(event.target.value)}><option value="All">Tất cả thứ hạng</option><option value="top3">Top 3</option><option value="top10">Top 10</option><option value="top20">Top 20</option><option value="21-50">Top 21–50</option><option value="51-100">Top 51–100</option><option value="100+">Ngoài Top 100</option><option value="unknown">Chưa có thứ hạng</option></select><select value={rankSort} onChange={event => setRankSort(event.target.value)}><option value="position">Sắp xếp: Vị trí</option><option value="keyword">Sắp xếp: Keyword</option><option value="clicks">Sắp xếp: Clicks</option><option value="impressions">Sắp xếp: Impressions</option><option value="ctr">Sắp xếp: CTR</option></select><button className="secondary sort-direction" onClick={() => setRankDirection(current => current === "asc" ? "desc" : "asc")}>{rankDirection === "asc" ? "Tăng dần ↑" : "Giảm dần ↓"}</button></>}</div><div className="button-row">{(module === "rankings" || module === "analytics") && <label className="import-date"><span>Ngày áp dụng</span><input aria-label="Ngày áp dụng dữ liệu nhập" type="date" value={importDate} onChange={event => setImportDate(event.target.value)} /></label>}<input ref={fileRef} hidden type="file" accept=".csv" onChange={importCsv} /><button className="secondary" onClick={() => fileRef.current?.click()}>{module === "rankings" ? "Nhập CSV GSC" : module === "analytics" ? "Nhập CSV GA4" : "Nhập CSV"}</button><button className="secondary" onClick={exportCsv}>Xuất CSV</button></div></div>
     <div className="panel full">{module === "content" ? <ContentPlanTable rows={visibleRows} actions={rowActions} /> : <SimpleTable rows={visibleRows} columns={meta.columns} showIndex={module === "rankings"} indexOffset={module === "rankings" ? (rankPage - 1) * rankPageSize : 0} actions={rowActions} />}</div>
     {module === "rankings" && <div className="pagination"><span>Hiển thị {filtered.length ? (rankPage - 1) * rankPageSize + 1 : 0}–{Math.min(rankPage * rankPageSize, filtered.length)} / {filtered.length} keyword</span><div><button className="secondary" disabled={rankPage <= 1} onClick={() => setRankPage(page => Math.max(1, page - 1))}>← Trước</button><b>Trang {rankPage} / {rankTotalPages}</b><button className="secondary" disabled={rankPage >= rankTotalPages} onClick={() => setRankPage(page => Math.min(rankTotalPages, page + 1))}>Sau →</button></div></div>}
     {open && <EditorModal title={`${editing ? "Sửa" : "Thêm"} ${meta.title}`} module={module} row={editing || { id: uid(meta.prefix) }} personnel={personnel} defaultOwner={personnel.find(person => String(person.status || "Active") !== "Inactive")?.name?.toString() || ""} onSave={save} onClose={() => { setOpen(false); setEditing(null); }} />}

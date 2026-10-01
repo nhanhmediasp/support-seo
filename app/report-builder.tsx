@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { supabase, supabaseConfigured } from "../lib/supabase";
 
 type Row = Record<string, string | number | boolean> & { id: string };
 type ReportData = Record<string, Row[]>;
 type ReportSettings = { name: string; domain: string; owner: string; email: string; timezone: string };
-type SectionKey = "overview" | "gsc" | "keywords" | "pages" | "tasks" | "worklogs" | "content" | "audits" | "indexing" | "backlinks" | "expenses" | "nextPlan" | "notes";
+type SectionKey = "overview" | "gsc" | "analytics" | "keywords" | "pages" | "tasks" | "worklogs" | "content" | "audits" | "indexing" | "backlinks" | "expenses" | "nextPlan" | "notes";
 type SectionConfig = { key: SectionKey; title: string; enabled: boolean };
 
 export type SavedSeoReport = {
@@ -21,11 +22,16 @@ export type SavedSeoReport = {
   nextPlan: string;
   notes: string;
   snapshot: ReportData;
+  shareToken?: string;
+  publishedAt?: string;
 };
+
+export type PublicSeoReportPayload = { report: SavedSeoReport; settings: ReportSettings };
 
 const sectionDefaults: SectionConfig[] = [
   { key: "overview", title: "Tổng quan kết quả", enabled: true },
   { key: "gsc", title: "Hiệu suất Google Search Console", enabled: true },
+  { key: "analytics", title: "Traffic Google Analytics", enabled: true },
   { key: "keywords", title: "Từ khóa nổi bật", enabled: true },
   { key: "pages", title: "Landing page hiệu suất cao", enabled: true },
   { key: "tasks", title: "Công việc đã hoàn thành", enabled: true },
@@ -60,6 +66,7 @@ function rangeData(data: ReportData, from: string, to: string): ReportData {
   const inRange = (value: unknown) => { const date = asText(value).slice(0, 10); return Boolean(date && date >= from && date <= to); };
   return {
     rankings: (data.rankings || []).filter(row => inRange(row.date)),
+    analytics: (data.analytics || []).filter(row => inRange(row.date)),
     tasks: (data.tasks || []).filter(row => inRange(row.completedDate || row.startDate)),
     worklogs: (data.worklogs || []).filter(row => inRange(row.date || row.occurredAt)),
     content: (data.content || []).filter(row => inRange(row.publishDate)),
@@ -74,10 +81,11 @@ function suggestedSummary(snapshot: ReportData) {
   const rankings = snapshot.rankings || [];
   const clicks = rankings.reduce((sum, row) => sum + asNumber(row.clicks), 0);
   const impressions = rankings.reduce((sum, row) => sum + asNumber(row.impressions), 0);
+  const sessions = (snapshot.analytics || []).reduce((sum, row) => sum + asNumber(row.sessions), 0);
   const done = (snapshot.tasks || []).filter(row => asText(row.status) === "Done").length;
   const published = (snapshot.content || []).filter(row => asText(row.status) === "Published").length;
   const fixed = (snapshot.audits || []).filter(row => asText(row.status) === "Done").length;
-  return `Trong kỳ, website ghi nhận ${formatNumber(clicks)} lượt nhấp và ${formatNumber(impressions)} lượt hiển thị tự nhiên. Đội ngũ đã hoàn thành ${done} công việc, xuất bản ${published} nội dung và xử lý ${fixed} hạng mục kỹ thuật. Các số liệu và bằng chứng chi tiết được trình bày ở các phần bên dưới.`;
+  return `Trong kỳ, website ghi nhận ${formatNumber(clicks)} lượt nhấp, ${formatNumber(impressions)} lượt hiển thị tự nhiên và ${formatNumber(sessions)} phiên truy cập theo Google Analytics. Đội ngũ đã hoàn thành ${done} công việc, xuất bản ${published} nội dung và xử lý ${fixed} hạng mục kỹ thuật. Các số liệu và bằng chứng chi tiết được trình bày ở các phần bên dưới.`;
 }
 
 function suggestedPlan(snapshot: ReportData) {
@@ -101,20 +109,20 @@ function EvidenceGallery({ rows }: { rows: Row[] }) {
   return <div className="report-evidence-grid">{items.map((item, index) => <figure key={`${item.url}-${index}`}><img src={item.url} alt={`${item.type}: ${item.label}`} /><figcaption><b>{item.type}</b><span>{item.label}</span></figcaption></figure>)}</div>;
 }
 
-export default function ReportBuilder({ data, settings, savedReports, onSaveReports, notify }: { data: ReportData; settings: ReportSettings; savedReports: SavedSeoReport[]; onSaveReports: (reports: SavedSeoReport[]) => void; notify: (message: string) => void }) {
-  const [from, setFrom] = useState(firstDayOfMonth());
-  const [to, setTo] = useState(today());
-  const [title, setTitle] = useState(`Báo cáo SEO tháng ${new Date().getMonth() + 1}/${new Date().getFullYear()}`);
-  const [author, setAuthor] = useState(settings.owner);
-  const [sections, setSections] = useState(sectionDefaults);
-  const [summary, setSummary] = useState("");
-  const [nextPlan, setNextPlan] = useState("");
-  const [notes, setNotes] = useState("");
-  const [editingId, setEditingId] = useState("");
-  const [createdAt, setCreatedAt] = useState(new Date().toISOString());
-  const [historyOpen, setHistoryOpen] = useState(false);
+export default function ReportBuilder({ data, settings, savedReports = [], onSaveReports = () => undefined, notify = () => undefined, onNavigate = () => undefined, projectId = "", viewOnlyReport }: { data: ReportData; settings: ReportSettings; savedReports?: SavedSeoReport[]; onSaveReports?: (reports: SavedSeoReport[]) => void; notify?: (message: string) => void; onNavigate?: (page: string) => void; projectId?: string; viewOnlyReport?: SavedSeoReport }) {
+  const [mode, setMode] = useState<"list" | "edit">(viewOnlyReport ? "edit" : "list");
+  const [from, setFrom] = useState(viewOnlyReport?.from || firstDayOfMonth());
+  const [to, setTo] = useState(viewOnlyReport?.to || today());
+  const [title, setTitle] = useState(viewOnlyReport?.title || `Báo cáo SEO tháng ${new Date().getMonth() + 1}/${new Date().getFullYear()}`);
+  const [author, setAuthor] = useState(viewOnlyReport?.author || settings.owner);
+  const [sections, setSections] = useState(viewOnlyReport?.sections || sectionDefaults);
+  const [summary, setSummary] = useState(viewOnlyReport?.summary || "");
+  const [nextPlan, setNextPlan] = useState(viewOnlyReport?.nextPlan || "");
+  const [notes, setNotes] = useState(viewOnlyReport?.notes || "");
+  const [editingId, setEditingId] = useState(viewOnlyReport?.id || "");
+  const [createdAt, setCreatedAt] = useState(viewOnlyReport?.createdAt || new Date().toISOString());
   const liveSnapshot = useMemo(() => rangeData(data, from, to), [data, from, to]);
-  const [loadedSnapshot, setLoadedSnapshot] = useState<ReportData | null>(null);
+  const [loadedSnapshot, setLoadedSnapshot] = useState<ReportData | null>(viewOnlyReport?.snapshot || null);
   const snapshot = loadedSnapshot || liveSnapshot;
 
   useEffect(() => { if (!summary) setSummary(suggestedSummary(liveSnapshot)); }, []);
@@ -125,6 +133,13 @@ export default function ReportBuilder({ data, settings, savedReports, onSaveRepo
   const impressions = rankings.reduce((sum, row) => sum + asNumber(row.impressions), 0);
   const ctr = impressions ? clicks / impressions * 100 : 0;
   const avgPosition = rankings.length ? rankings.reduce((sum, row) => sum + asNumber(row.position), 0) / rankings.length : 0;
+  const analytics = snapshot.analytics || [];
+  const gaSessions = analytics.reduce((sum, row) => sum + asNumber(row.sessions), 0);
+  const gaUsers = analytics.reduce((sum, row) => sum + asNumber(row.users), 0);
+  const gaNewUsers = analytics.reduce((sum, row) => sum + asNumber(row.newUsers), 0);
+  const gaEngagedSessions = analytics.reduce((sum, row) => sum + asNumber(row.engagedSessions), 0);
+  const gaConversions = analytics.reduce((sum, row) => sum + asNumber(row.conversions), 0);
+  const gaEngagementRate = gaSessions ? gaEngagedSessions / gaSessions * 100 : analytics.length ? analytics.reduce((sum, row) => sum + asNumber(row.engagementRate), 0) / analytics.length : 0;
   const completedTasks = (snapshot.tasks || []).filter(row => asText(row.status) === "Done");
   const hours = (snapshot.worklogs || []).reduce((sum, row) => sum + asNumber(row.hours), 0);
   const topQueries = [...rankings].sort((a, b) => asNumber(b.clicks) - asNumber(a.clicks)).slice(0, 10);
@@ -143,7 +158,7 @@ export default function ReportBuilder({ data, settings, savedReports, onSaveRepo
   const topPages = [...pageMap.values()].sort((a, b) => asNumber(b.clicks) - asNumber(a.clicks)).slice(0, 10).map(row => ({ ...row, position: asNumber(row.position).toFixed(1), ctr: `${asNumber(row.ctr).toFixed(2)}%` }));
   const metrics = [
     ["Organic clicks", formatNumber(clicks)], ["Impressions", formatNumber(impressions)], ["CTR", `${ctr.toFixed(2)}%`], ["Vị trí trung bình", avgPosition ? avgPosition.toFixed(1) : "—"],
-    ["Từ khóa Top 3", rankings.filter(row => asNumber(row.position) <= 3).length], ["Từ khóa Top 10", rankings.filter(row => asNumber(row.position) <= 10).length], ["Task hoàn thành", completedTasks.length], ["Giờ triển khai", `${hours}h`],
+    ["Từ khóa Top 3", rankings.filter(row => asNumber(row.position) <= 3).length], ["Từ khóa Top 10", rankings.filter(row => asNumber(row.position) <= 10).length], ["GA4 Sessions", formatNumber(gaSessions)], ["GA4 Users", formatNumber(gaUsers)], ["Chuyển đổi", formatNumber(gaConversions)], ["Task hoàn thành", completedTasks.length], ["Giờ triển khai", `${hours}h`],
   ];
   const generatedAt = new Date().toISOString();
 
@@ -157,22 +172,52 @@ export default function ReportBuilder({ data, settings, savedReports, onSaveRepo
   });
   const refreshSuggestions = () => { setSummary(suggestedSummary(liveSnapshot)); setNextPlan(suggestedPlan(liveSnapshot)); notify("Đã cập nhật gợi ý từ dữ liệu hiện tại"); };
   const newReport = () => {
-    setEditingId(""); setLoadedSnapshot(null); setFrom(firstDayOfMonth()); setTo(today()); setTitle(`Báo cáo SEO tháng ${new Date().getMonth() + 1}/${new Date().getFullYear()}`); setAuthor(settings.owner); setSections(sectionDefaults); setSummary(suggestedSummary(rangeData(data, firstDayOfMonth(), today()))); setNextPlan(suggestedPlan(rangeData(data, firstDayOfMonth(), today()))); setNotes(""); setCreatedAt(new Date().toISOString());
+    setMode("edit"); setEditingId(""); setLoadedSnapshot(null); setFrom(firstDayOfMonth()); setTo(today()); setTitle(`Báo cáo SEO tháng ${new Date().getMonth() + 1}/${new Date().getFullYear()}`); setAuthor(settings.owner); setSections(sectionDefaults); setSummary(suggestedSummary(rangeData(data, firstDayOfMonth(), today()))); setNextPlan(suggestedPlan(rangeData(data, firstDayOfMonth(), today()))); setNotes(""); setCreatedAt(new Date().toISOString());
   };
-  const saveReport = () => {
+  const saveReport = async () => {
     const now = new Date().toISOString();
-    const report: SavedSeoReport = { id: editingId || uid(), title: title.trim() || "Báo cáo SEO", from, to, author: author.trim() || settings.owner, createdAt: editingId ? createdAt : now, updatedAt: now, sections, summary, nextPlan, notes, snapshot: liveSnapshot };
+    const existing = savedReports.find(item => item.id === editingId);
+    const report: SavedSeoReport = { id: editingId || uid(), title: title.trim() || "Báo cáo SEO", from, to, author: author.trim() || settings.owner, createdAt: editingId ? createdAt : now, updatedAt: now, sections, summary, nextPlan, notes, snapshot: liveSnapshot, shareToken: existing?.shareToken, publishedAt: existing?.shareToken ? now : existing?.publishedAt };
     const next = editingId ? savedReports.map(item => item.id === editingId ? report : item) : [report, ...savedReports].slice(0, 24);
-    onSaveReports(next); setEditingId(report.id); setCreatedAt(report.createdAt); setLoadedSnapshot(report.snapshot); notify(editingId ? "Đã cập nhật bản báo cáo" : "Đã lưu bản báo cáo mới");
+    if (report.shareToken) {
+      const payload: PublicSeoReportPayload = { report: { ...report, publishedAt: now }, settings };
+      localStorage.setItem(`seo-public-report-${report.shareToken}`, JSON.stringify(payload));
+      if (supabaseConfigured && supabase && projectId) await supabase.from("public_report_shares").upsert({ site_id: projectId, share_token: report.shareToken, payload, updated_at: now }, { onConflict: "share_token" });
+    }
+    onSaveReports(next); setEditingId(report.id); setCreatedAt(report.createdAt); setLoadedSnapshot(report.snapshot); setMode("list"); notify(editingId ? "Đã cập nhật bản báo cáo" : "Đã lưu bản báo cáo mới");
   };
   const loadReport = (report: SavedSeoReport) => {
-    setEditingId(report.id); setTitle(report.title); setFrom(report.from); setTo(report.to); setAuthor(report.author); setSections(report.sections); setSummary(report.summary); setNextPlan(report.nextPlan); setNotes(report.notes); setCreatedAt(report.createdAt); setLoadedSnapshot(report.snapshot); setHistoryOpen(false); notify("Đã mở bản báo cáo đã lưu");
+    const missingSections = sectionDefaults.filter(defaultSection => !report.sections.some(section => section.key === defaultSection.key));
+    setMode("edit"); setEditingId(report.id); setTitle(report.title); setFrom(report.from); setTo(report.to); setAuthor(report.author); setSections([...report.sections, ...missingSections]); setSummary(report.summary); setNextPlan(report.nextPlan); setNotes(report.notes); setCreatedAt(report.createdAt); setLoadedSnapshot(report.snapshot); notify("Đã mở bản báo cáo để chỉnh sửa");
   };
-  const deleteReport = (id: string) => {
+  const deleteReport = async (id: string) => {
     if (!window.confirm("Xóa bản báo cáo này?")) return;
+    const report = savedReports.find(item => item.id === id);
+    if (report?.shareToken) {
+      localStorage.removeItem(`seo-public-report-${report.shareToken}`);
+      if (supabaseConfigured && supabase && projectId) await supabase.from("public_report_shares").delete().eq("share_token", report.shareToken).eq("site_id", projectId);
+    }
     onSaveReports(savedReports.filter(report => report.id !== id));
-    if (editingId === id) newReport();
+    if (editingId === id) { setEditingId(""); setMode("list"); }
     notify("Đã xóa bản báo cáo");
+  };
+  const publishReport = async (source: SavedSeoReport, copyOnly = false) => {
+    const shareToken = source.shareToken || crypto.randomUUID().replaceAll("-", "");
+    const published: SavedSeoReport = { ...source, shareToken, publishedAt: new Date().toISOString() };
+    const payload: PublicSeoReportPayload = { report: published, settings };
+    localStorage.setItem(`seo-public-report-${shareToken}`, JSON.stringify(payload));
+    let cloudPublished = false;
+    if (supabaseConfigured && supabase && projectId) {
+      const { error } = await supabase.from("public_report_shares").upsert({ site_id: projectId, share_token: shareToken, payload, updated_at: new Date().toISOString() }, { onConflict: "share_token" });
+      if (error) notify(`Chưa đăng công khai được: ${error.message}`);
+      else cloudPublished = true;
+    }
+    onSaveReports(savedReports.map(report => report.id === source.id ? published : report));
+    const url = `${window.location.origin}/report/${shareToken}`;
+    if (copyOnly) {
+      await navigator.clipboard.writeText(url);
+      notify(cloudPublished ? "Đã sao chép link công khai gửi khách" : "Đã sao chép link; cần bật cloud để khách mở trên thiết bị khác");
+    } else window.open(url, "_blank", "noopener,noreferrer");
   };
   const exportCsv = () => {
     const lines: (string | number)[][] = [[title], [settings.name, settings.domain], ["Từ ngày", from, "Đến ngày", to], ["Người lập", author], [], ["Chỉ số", "Giá trị"], ...metrics.map(item => [String(item[0]), String(item[1])]), [], ["Nhận xét", summary]];
@@ -185,6 +230,7 @@ export default function ReportBuilder({ data, settings, savedReports, onSaveRepo
     const wrapper = (content: React.ReactNode) => <section className="report-document-section" key={section.key}><div className="report-section-heading"><span>{String(sections.filter(item => item.enabled).findIndex(item => item.key === section.key) + 1).padStart(2, "0")}</span><h2>{section.title}</h2></div>{content}</section>;
     if (section.key === "overview") return wrapper(<><div className="report-kpi-grid">{metrics.map(([label, value]) => <div key={String(label)}><span>{label}</span><strong>{value}</strong></div>)}</div><div className="report-narrative">{summary.split("\n").map((line, index) => <p key={index}>{line || <br />}</p>)}</div></>);
     if (section.key === "gsc") return wrapper(<div className="report-gsc-strip"><div><span>Clicks</span><b>{formatNumber(clicks)}</b></div><div><span>Impressions</span><b>{formatNumber(impressions)}</b></div><div><span>CTR</span><b>{ctr.toFixed(2)}%</b></div><div><span>Vị trí TB</span><b>{avgPosition ? avgPosition.toFixed(1) : "—"}</b></div></div>);
+    if (section.key === "analytics") return wrapper(<><div className="report-gsc-strip"><div><span>Sessions</span><b>{formatNumber(gaSessions)}</b></div><div><span>Total users</span><b>{formatNumber(gaUsers)}</b></div><div><span>New users</span><b>{formatNumber(gaNewUsers)}</b></div><div><span>Engagement rate</span><b>{gaEngagementRate.toFixed(2)}%</b></div><div><span>Engaged sessions</span><b>{formatNumber(gaEngagedSessions)}</b></div><div><span>Key events / Conversions</span><b>{formatNumber(gaConversions)}</b></div></div><Table rows={analytics} columns={[{ key: "date", label: "Ngày" }, { key: "channel", label: "Kênh traffic" }, { key: "sessions", label: "Sessions" }, { key: "users", label: "Users" }, { key: "newUsers", label: "New users" }, { key: "engagementRate", label: "Engagement rate (%)" }, { key: "conversions", label: "Chuyển đổi" }]} /></>);
     if (section.key === "keywords") return wrapper(<Table rows={topQueries.map(row => ({ ...row, ctr: `${asNumber(row.ctr).toFixed(2)}%` }))} columns={[{ key: "keyword", label: "Từ khóa" }, { key: "page", label: "Trang đích" }, { key: "position", label: "Vị trí" }, { key: "clicks", label: "Clicks" }, { key: "impressions", label: "Hiển thị" }, { key: "ctr", label: "CTR" }]} />);
     if (section.key === "pages") return wrapper(<Table rows={topPages} columns={[{ key: "page", label: "Landing page" }, { key: "clicks", label: "Clicks" }, { key: "impressions", label: "Hiển thị" }, { key: "position", label: "Vị trí TB" }, { key: "ctr", label: "CTR" }]} />);
     if (section.key === "tasks") return wrapper(<Table rows={completedTasks} columns={[{ key: "title", label: "Công việc" }, { key: "group", label: "Nhóm" }, { key: "owner", label: "Phụ trách" }, { key: "completedDate", label: "Hoàn thành" }, { key: "actual", label: "Giờ" }, { key: "result", label: "Kết quả" }]} />);
@@ -198,20 +244,27 @@ export default function ReportBuilder({ data, settings, savedReports, onSaveRepo
     return wrapper(<div className="report-narrative">{notes ? notes.split("\n").map((line, index) => <p key={index}>{line || <br />}</p>) : <p>Không có ghi chú bổ sung.</p>}</div>);
   };
 
-  return <div className="report-builder">
-    <section className="page-heading print-hide"><div><p className="eyebrow">MONTHLY SEO REPORT BUILDER</p><h2>Tạo báo cáo SEO</h2><p className="muted">Chọn nội dung, chỉnh sửa nhận xét, lưu phiên bản và xuất bản báo cáo có đầy đủ ảnh bằng chứng.</p></div><div className="button-row"><button className="secondary" onClick={newReport}>Tạo bản mới</button><button className="secondary" onClick={() => setHistoryOpen(value => !value)}>Bản đã lưu ({savedReports.length})</button><button className="secondary" onClick={exportCsv}>Xuất CSV</button><button className="primary" onClick={() => window.print()}>In / Lưu PDF</button></div></section>
-
-    {historyOpen && <section className="report-history panel print-hide"><div className="panel-title"><h3>Các phiên bản báo cáo</h3><button onClick={() => setHistoryOpen(false)}>Đóng</button></div>{savedReports.length ? <div className="report-history-list">{savedReports.map(report => <div key={report.id}><span><b>{report.title}</b><small>{formatDate(report.from)} – {formatDate(report.to)} · cập nhật {formatDateTime(report.updatedAt, settings.timezone)}</small></span><span><button className="secondary" onClick={() => loadReport(report)}>Mở & sửa</button><button className="danger-button" onClick={() => deleteReport(report.id)}>Xóa</button></span></div>)}</div> : <p className="report-empty">Chưa có bản báo cáo nào được lưu.</p>}</section>}
-
-    <section className="report-composer panel print-hide">
-      <div className="report-fields"><label className="wide"><span>Tên báo cáo</span><input value={title} onChange={event => setTitle(event.target.value)} /></label><label><span>Từ ngày</span><input type="date" value={from} onChange={event => { setFrom(event.target.value); setLoadedSnapshot(null); }} /></label><label><span>Đến ngày</span><input type="date" value={to} onChange={event => { setTo(event.target.value); setLoadedSnapshot(null); }} /></label><label><span>Người lập báo cáo</span><input value={author} onChange={event => setAuthor(event.target.value)} /></label></div>
-      <div className="report-editor-grid"><div><div className="report-editor-title"><h3>Nội dung báo cáo</h3><small>Bật/tắt, đổi tên và sắp xếp từng mục</small></div><div className="report-section-list">{sections.map((section, index) => <div className={section.enabled ? "enabled" : ""} key={section.key}><input aria-label={`Hiển thị ${section.title}`} type="checkbox" checked={section.enabled} onChange={event => updateSection(index, { enabled: event.target.checked })} /><input value={section.title} onChange={event => updateSection(index, { title: event.target.value })} /><button disabled={index === 0} onClick={() => moveSection(index, -1)} aria-label="Đưa mục lên">↑</button><button disabled={index === sections.length - 1} onClick={() => moveSection(index, 1)} aria-label="Đưa mục xuống">↓</button></div>)}</div></div><div className="report-copy-editors"><label><span>Nhận xét tổng quan</span><textarea value={summary} onChange={event => setSummary(event.target.value)} /></label><label><span>Kế hoạch tháng tới</span><textarea value={nextPlan} onChange={event => setNextPlan(event.target.value)} /></label><label><span>Ghi chú / đề xuất</span><textarea value={notes} onChange={event => setNotes(event.target.value)} placeholder="Đề xuất ngân sách, nội dung cần khách hàng duyệt, rủi ro…" /></label><div className="button-row"><button className="secondary" onClick={refreshSuggestions}>Tạo lại gợi ý</button><button className="primary" onClick={saveReport}>{editingId ? "Cập nhật báo cáo" : "Lưu báo cáo"}</button></div></div></div>
-    </section>
-
-    <article className="report-document">
+  const reportDocument = <article className="report-document">
       <header className="report-cover"><div className="report-cover-mark">SEO</div><div><p>BÁO CÁO HIỆU SUẤT ĐỊNH KỲ</p><h1>{title}</h1><h2>{settings.name}</h2><a href={settings.domain}>{settings.domain}</a></div><dl><div><dt>Thời gian báo cáo</dt><dd>{formatDate(from)} – {formatDate(to)}</dd></div><div><dt>Người lập</dt><dd>{author || settings.owner}</dd></div><div><dt>Email</dt><dd>{settings.email || "—"}</dd></div><div><dt>Ngày tạo</dt><dd>{formatDateTime(createdAt, settings.timezone)}</dd></div><div><dt>Cập nhật / xuất bản</dt><dd>{formatDateTime(generatedAt, settings.timezone)}</dd></div></dl></header>
       {sections.map(renderSection)}
       <footer className="report-footer"><b>{settings.name}</b><span>{settings.domain} · Báo cáo được tạo lúc {formatDateTime(generatedAt, settings.timezone)}</span></footer>
-    </article>
+    </article>;
+
+  if (viewOnlyReport) return <div className="report-builder public-report-document">{reportDocument}</div>;
+
+  if (mode === "list") return <div className="report-builder">
+    <section className="page-heading"><div><p className="eyebrow">SEO REPORT LIBRARY</p><h2>Báo cáo SEO</h2><p className="muted">Quản lý các báo cáo đã tạo, mở trang xem hoặc sao chép đường dẫn gửi khách hàng.</p></div><button className="primary" onClick={newReport}>＋ Tạo báo cáo mới</button></section>
+    {savedReports.length ? <section className="report-library">{savedReports.map(report => <article className="report-library-card" key={report.id}><div className="report-library-icon">SEO</div><div className="report-library-copy"><span className={report.shareToken ? "report-publish-status published" : "report-publish-status"}>{report.shareToken ? "Đã có link chia sẻ" : "Bản nội bộ"}</span><h3>{report.title}</h3><p>{formatDate(report.from)} – {formatDate(report.to)}</p><small>Người lập: {report.author} · Cập nhật {formatDateTime(report.updatedAt, settings.timezone)}</small></div><div className="report-library-actions"><button className="primary" onClick={() => void publishReport(report)}>Xem</button><button className="secondary" onClick={() => loadReport(report)}>Sửa</button><button className="secondary" onClick={() => void publishReport(report, true)}>Sao chép link</button><button className="danger-button" onClick={() => void deleteReport(report.id)}>Xóa</button></div></article>)}</section> : <section className="report-library-empty panel"><div className="report-library-icon">SEO</div><h3>Chưa có báo cáo nào</h3><p>Tạo báo cáo đầu tiên, chọn nội dung cần hiển thị rồi lưu lại để xem hoặc gửi khách hàng.</p><button className="primary" onClick={newReport}>Tạo báo cáo đầu tiên</button></section>}
+  </div>;
+
+  return <div className="report-builder">
+    <section className="page-heading print-hide"><div><p className="eyebrow">MONTHLY SEO REPORT BUILDER</p><h2>{editingId ? "Chỉnh sửa báo cáo" : "Tạo báo cáo mới"}</h2><p className="muted">Chọn nội dung, chỉnh sửa nhận xét và lưu báo cáo trước khi mở trang xem riêng.</p></div><div className="button-row"><button className="secondary" onClick={() => setMode("list")}>← Danh sách báo cáo</button><button className="secondary" onClick={exportCsv}>Xuất CSV</button></div></section>
+    {(!rankings.length || !analytics.length) && <section className="report-data-notice panel print-hide"><div><b>Thiếu dữ liệu hiệu suất trong kỳ</b><p>{!rankings.length ? "Search Console chưa có dữ liệu. " : ""}{!analytics.length ? "Google Analytics chưa có dữ liệu." : ""} Bạn có thể nhập từng bản ghi hoặc tải file CSV, không cần kết nối tài khoản Google.</p></div><div className="button-row">{!rankings.length && <button className="secondary" onClick={() => onNavigate("rankings")}>Nhập dữ liệu GSC</button>}{!analytics.length && <button className="primary" onClick={() => onNavigate("analytics")}>Nhập traffic GA4</button>}</div></section>}
+    <section className="report-composer panel print-hide">
+      <div className="report-fields"><label className="wide"><span>Tên báo cáo</span><input value={title} onChange={event => setTitle(event.target.value)} /></label><label><span>Từ ngày</span><input type="date" value={from} onChange={event => { setFrom(event.target.value); setLoadedSnapshot(null); }} /></label><label><span>Đến ngày</span><input type="date" value={to} onChange={event => { setTo(event.target.value); setLoadedSnapshot(null); }} /></label><label><span>Người lập báo cáo</span><input value={author} onChange={event => setAuthor(event.target.value)} /></label></div>
+      <div className="report-editor-grid"><div><div className="report-editor-title"><h3>Nội dung báo cáo</h3><small>Bật/tắt, đổi tên và sắp xếp từng mục</small></div><div className="report-section-list">{sections.map((section, index) => <div className={section.enabled ? "enabled" : ""} key={section.key}><input aria-label={`Hiển thị ${section.title}`} type="checkbox" checked={section.enabled} onChange={event => updateSection(index, { enabled: event.target.checked })} /><input value={section.title} onChange={event => updateSection(index, { title: event.target.value })} /><button disabled={index === 0} onClick={() => moveSection(index, -1)} aria-label="Đưa mục lên">↑</button><button disabled={index === sections.length - 1} onClick={() => moveSection(index, 1)} aria-label="Đưa mục xuống">↓</button></div>)}</div></div><div className="report-copy-editors"><label><span>Nhận xét tổng quan</span><textarea value={summary} onChange={event => setSummary(event.target.value)} /></label><label><span>Kế hoạch tháng tới</span><textarea value={nextPlan} onChange={event => setNextPlan(event.target.value)} /></label><label><span>Ghi chú / đề xuất</span><textarea value={notes} onChange={event => setNotes(event.target.value)} placeholder="Đề xuất ngân sách, nội dung cần khách hàng duyệt, rủi ro…" /></label><div className="button-row"><button className="secondary" onClick={refreshSuggestions}>Tạo lại gợi ý</button><button className="primary" onClick={() => void saveReport()}>{editingId ? "Cập nhật báo cáo" : "Lưu báo cáo"}</button></div></div></div>
+    </section>
+    <div className="report-preview-label print-hide"><span>XEM TRƯỚC</span><p>Bản xem trước chỉ hiển thị trong lúc tạo. Sau khi lưu, dùng nút “Xem” ở danh sách để mở trang gửi khách.</p></div>
+    {reportDocument}
   </div>;
 }
