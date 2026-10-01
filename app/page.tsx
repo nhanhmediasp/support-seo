@@ -17,7 +17,8 @@ const today = () => new Date().toISOString().slice(0, 10);
 const uid = (prefix: string) => `${prefix}-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
 const csvEscape = (value: unknown) => `"${String(value ?? "").replaceAll('"', '""')}"`;
 const formatCurrency = (value: unknown) => new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(Number(value) || 0);
-const parseCsvLine = (line: string, delimiter = ",") => {
+const parseCsvLine = (line?: string | null, delimiter = ",") => {
+  if (!line || typeof line !== "string") return [];
   const values: string[] = [];
   let value = "";
   let quoted = false;
@@ -58,9 +59,15 @@ const csvDecimal = (value: string) => {
 const normalizeImportDate = (value: string, fallback: string) => {
   const raw = String(value || "").trim();
   if (/^\d{8}$/.test(raw)) return `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const isoMatch = raw.match(/^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})$/);
+  if (isoMatch) return `${isoMatch[1]}-${isoMatch[2].padStart(2, "0")}-${isoMatch[3].padStart(2, "0")}`;
   const localDate = raw.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
-  if (localDate) return `${localDate[3]}-${localDate[2].padStart(2, "0")}-${localDate[1].padStart(2, "0")}`;
+  if (localDate) {
+    const p1 = Number(localDate[1]);
+    const p2 = Number(localDate[2]);
+    if (p2 > 12 && p1 <= 12) return `${localDate[3]}-${String(p1).padStart(2, "0")}-${String(p2).padStart(2, "0")}`;
+    return `${localDate[3]}-${String(p2).padStart(2, "0")}-${String(p1).padStart(2, "0")}`;
+  }
   return fallback;
 };
 const gscKeywordRows = (rows: Row[]) => rows.filter(row => row.gscSummary !== true);
@@ -80,17 +87,22 @@ const parseGscFile = async (file: File, importDate: string): Promise<Row[]> => {
   const lines = await decodeTabularFile(file);
   if (!lines.length) return [];
   const delimiter = detectDelimiter(lines);
-  const keywordAliases = ["Truy vấn phổ biến nhất", "Truy vấn", "Query", "Top queries", "Search query", "Cụm từ tìm kiếm", "Từ khóa", "Từ khoá", "Keyword", "Search term", "Search terms"];
-  const clicksAliases = ["Lượt nhấp", "Số lượt nhấp", "Clicks", "Click"];
-  const impressionsAliases = ["Lượt hiển thị", "Số lượt hiển thị", "Impressions", "Impression"];
+  const keywordAliases = [
+    "Truy vấn phổ biến nhất", "Truy vấn", "Query", "Queries", "Top queries",
+    "Search query", "Search queries", "Cụm từ tìm kiếm", "Cụm từ tìm kiếm hàng đầu",
+    "Từ khóa", "Từ khoá", "Keyword", "Keywords", "Search term", "Search terms"
+  ];
+  const clicksAliases = ["Lượt nhấp", "Số lượt nhấp", "Clicks", "Click", "Tổng số lượt nhấp"];
+  const impressionsAliases = ["Lượt hiển thị", "Số lượt hiển thị", "Impressions", "Impression", "Tổng số lượt hiển thị"];
   const hasAlias = (headers: string[], aliases: string[]) => aliases.some(alias => headers.some(header => header === normalizeCsvHeader(alias) || header.includes(normalizeCsvHeader(alias))));
   const keywordHeaderIndex = lines.slice(0, 40).findIndex(line => {
     const normalized = parseCsvLine(line, delimiter).map(normalizeCsvHeader);
-    return hasAlias(normalized, keywordAliases) && hasAlias(normalized, clicksAliases) && hasAlias(normalized, impressionsAliases);
+    return hasAlias(normalized, keywordAliases) && (hasAlias(normalized, clicksAliases) || hasAlias(normalized, ["vi tri", "position", "url", "trang", "page"]));
   });
   const chartHeaderIndex = lines.slice(0, 40).findIndex(line => {
     const normalized = parseCsvLine(line, delimiter).map(normalizeCsvHeader);
-    return normalized.some(header => ["ngay", "date"].includes(header)) && hasAlias(normalized, clicksAliases) && hasAlias(normalized, impressionsAliases) && !hasAlias(normalized, keywordAliases);
+    const hasDate = normalized.some(header => ["ngay", "date"].includes(header) || header.includes("ngay") || header.includes("date"));
+    return hasDate && hasAlias(normalized, clicksAliases) && !hasAlias(normalized, keywordAliases);
   });
   const headerIndex = keywordHeaderIndex >= 0 ? keywordHeaderIndex : chartHeaderIndex;
   if (headerIndex < 0) return [];
@@ -106,35 +118,40 @@ const parseGscFile = async (file: File, importDate: string): Promise<Row[]> => {
   };
   const clicksIndex = findColumn(...clicksAliases);
   const impressionsIndex = findColumn(...impressionsAliases);
-  const ctrIndex = findColumn("CTR", "Tỷ lệ nhấp", "Tỷ lệ nhấp chuột");
-  const positionIndex = findColumn("Vị trí", "Vị trí trung bình", "Position", "Average position", "Avg. position");
-  if (clicksIndex === undefined || impressionsIndex === undefined) return [];
+  const ctrIndex = findColumn("CTR", "Tỷ lệ nhấp", "Tỷ lệ nhấp chuột", "Tỷ lệ nhấp trung bình", "Average CTR", "Avg. CTR");
+  const positionIndex = findColumn("Vị trí", "Vị trí trung bình", "Position", "Average position", "Avg. position", "Avg position");
   if (keywordHeaderIndex < 0) {
-    const dateIndex = findColumn("Ngày", "Date");
+    if (clicksIndex === undefined && impressionsIndex === undefined) return [];
+    const dateIndex = findColumn("Ngày", "Date", "Day", "Thời gian");
     if (dateIndex === undefined) return [];
     return dataLines.map(line => {
       const values = parseCsvLine(line, delimiter);
       const date = normalizeImportDate(values[dateIndex], importDate);
-      const clicks = csvInteger(values[clicksIndex]);
-      const impressions = csvInteger(values[impressionsIndex]);
+      const clicks = clicksIndex !== undefined ? csvInteger(values[clicksIndex]) : 0;
+      const impressions = impressionsIndex !== undefined ? csvInteger(values[impressionsIndex]) : 0;
+      const ctr = ctrIndex !== undefined ? csvDecimal(values[ctrIndex]) : (impressions ? Number((clicks / impressions * 100).toFixed(2)) : 0);
+      const position = positionIndex !== undefined ? csvDecimal(values[positionIndex]) : 0;
       return normalizeRow("rankings", {
         id: uid("GSC-TOTAL"), keyword: `Tổng hiệu suất GSC ${date}`, page: "", gscSummary: true,
-        position: positionIndex === undefined ? 0 : csvDecimal(values[positionIndex]), previous: 0, clicks, impressions,
-        ctr: ctrIndex === undefined ? (impressions ? clicks / impressions * 100 : 0) : csvDecimal(values[ctrIndex]), date, source: file.name,
+        position, previous: 0, clicks, impressions, ctr, date, source: file.name,
       });
     }).filter(row => row.date && (Number(row.clicks) > 0 || Number(row.impressions) > 0));
   }
   const keywordIndex = findColumn(...keywordAliases);
   const pageIndex = findColumn("Trang phổ biến nhất", "Trang", "Page", "Top pages", "Landing page", "Trang đích", "Final URL", "URL");
-  if (keywordIndex === undefined || ctrIndex === undefined || positionIndex === undefined) return [];
+  const dateIndex = findColumn("Ngày", "Date");
+  if (keywordIndex === undefined) return [];
   return dataLines.map(line => {
     const values = parseCsvLine(line, delimiter);
     const keyword = String(values[keywordIndex] || "").trim();
-    const position = csvDecimal(values[positionIndex]);
+    const clicks = clicksIndex !== undefined ? csvInteger(values[clicksIndex]) : 0;
+    const impressions = impressionsIndex !== undefined ? csvInteger(values[impressionsIndex]) : 0;
+    const position = positionIndex !== undefined ? csvDecimal(values[positionIndex]) : 0;
+    const ctr = ctrIndex !== undefined ? csvDecimal(values[ctrIndex]) : (impressions ? Number((clicks / impressions * 100).toFixed(2)) : 0);
+    const rowDate = dateIndex !== undefined ? normalizeImportDate(values[dateIndex], importDate) : importDate;
     return normalizeRow("rankings", {
       id: uid("KW"), keyword, page: pageIndex === undefined ? "" : values[pageIndex] || "",
-      position, previous: position, clicks: csvInteger(values[clicksIndex]), impressions: csvInteger(values[impressionsIndex]),
-      ctr: csvDecimal(values[ctrIndex]), date: importDate, source: file.name,
+      position, previous: position, clicks, impressions, ctr, date: rowDate, source: file.name,
     });
   }).filter(row => row.keyword && !["total", "tong", "tổng"].includes(String(row.keyword).trim().toLowerCase()));
 };
@@ -817,96 +834,83 @@ function ModuleView({ module, rows, setRows, onChange, onRecordSaved, onOpenSour
   const exportCsv = () => { const keys = fields[module].map(field => field.key); const content = "\uFEFF" + [keys.map(csvEscape).join(","), ...rows.map(row => keys.map(key => csvEscape(row[key])).join(","))].join("\n"); downloadFile(`${module}-${today()}.csv`, content, "text/csv;charset=utf-8"); };
   const importCsv = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]; if (!file) return;
-    let gscZipRows: Row[] | null = null;
+
     if (module === "rankings" && file.name.toLowerCase().endsWith(".zip")) {
-      if (file.size > 20 * 1024 * 1024) { setGscStatus("File ZIP vượt quá giới hạn 20 MB."); event.target.value = ""; return; }
+      if (file.size > 50 * 1024 * 1024) { setGscStatus("File ZIP vượt quá giới hạn 50 MB."); event.target.value = ""; return; }
+      setGscStatus("Đang giải nén và phân tích dữ liệu GSC từ file ZIP…");
       try {
         const archive = await JSZip.loadAsync(file);
-        const csvEntries = Object.values(archive.files).filter(entry => !entry.dir && entry.name.toLowerCase().endsWith(".csv") && !entry.name.startsWith("__MACOSX/"));
+        const csvEntries = Object.values(archive.files).filter(entry => {
+          const lower = entry.name.toLowerCase();
+          return !entry.dir && lower.endsWith(".csv") && !entry.name.includes("__MACOSX") && !entry.name.split("/").pop()?.startsWith("._");
+        });
+        if (!csvEntries.length) {
+          setGscStatus("File ZIP không chứa file .csv nào. Hãy đảm bảo bạn tải trực tiếp file ZIP từ Google Search Console.");
+          event.target.value = "";
+          return;
+        }
         let extractedBytes = 0;
         const parsedGroups: Row[][] = [];
         for (const entry of csvEntries) {
-          const content = await entry.async("uint8array");
-          extractedBytes += content.byteLength;
-          if (extractedBytes > 50 * 1024 * 1024) throw new Error("Dữ liệu giải nén vượt quá giới hạn 50 MB");
-          parsedGroups.push(await parseGscFile(new File([content], entry.name, { type: "text/csv" }), importDate));
+          try {
+            const content = await entry.async("uint8array");
+            extractedBytes += content.byteLength;
+            if (extractedBytes > 100 * 1024 * 1024) throw new Error("Dữ liệu giải nén vượt quá giới hạn 100 MB");
+            const baseName = entry.name.split("/").pop() || entry.name;
+            const groupRows = await parseGscFile(new File([content], baseName, { type: "text/csv" }), importDate);
+            if (groupRows.length) parsedGroups.push(groupRows);
+          } catch (entryErr) {
+            console.warn(`Lỗi khi đọc file ${entry.name} trong ZIP:`, entryErr);
+          }
         }
         const parsedRows = parsedGroups.flat();
+        if (!parsedRows.length) {
+          setGscStatus("Không tìm thấy dữ liệu từ khóa hoặc hiệu suất trong file ZIP. Vui lòng đảm bảo file ZIP chứa 'Cụm từ tìm kiếm' (Queries.csv).");
+          event.target.value = "";
+          return;
+        }
         const summaryEndDate = parsedRows.filter(row => row.gscSummary === true).map(row => String(row.date || "")).sort().at(-1);
-        gscZipRows = summaryEndDate ? parsedRows.map(row => row.gscSummary === true ? row : { ...row, date: summaryEndDate }) : parsedRows;
+        const gscZipRows = summaryEndDate ? parsedRows.map(row => row.gscSummary === true ? row : { ...row, date: summaryEndDate }) : parsedRows;
+
+        const existingKeywordMap = new Map<string, Row>();
+        rows.forEach(row => {
+          if (row.gscSummary !== true && row.keyword) {
+            existingKeywordMap.set(String(row.keyword).trim().toLowerCase(), row);
+          }
+        });
+
+        const finalZipRows = gscZipRows.map(row => {
+          if (row.gscSummary === true) return row;
+          const key = String(row.keyword || "").trim().toLowerCase();
+          const prev = existingKeywordMap.get(key);
+          const currentPos = Number(row.position || 0);
+          const prevPos = prev && prev.date !== row.date && Number(prev.position || 0) > 0 ? Number(prev.position) : currentPos;
+          return { ...row, previous: prevPos };
+        });
+
+        const importedKeys = new Set(finalZipRows.map(row => `${String(row.keyword).trim().toLowerCase()}|${String(row.page || "").trim().toLowerCase()}|${row.date}`));
+        const preserved = rows.filter(row => !importedKeys.has(`${String(row.keyword).trim().toLowerCase()}|${String(row.page || "").trim().toLowerCase()}|${row.date}`));
+        setRows([...finalZipRows, ...preserved]);
+        onChange("Import GSC ZIP", meta.title, `${finalZipRows.length} bản ghi`);
+
+        const keywordCount = finalZipRows.filter(row => row.gscSummary !== true).length;
+        const summaryCount = finalZipRows.filter(row => row.gscSummary === true).length;
+        setGscStatus(summaryCount ? `Đã nhập thành công ${keywordCount} từ khóa + ${summaryCount} ngày tổng hiệu suất từ ${file.name}` : `Đã nhập thành công ${keywordCount} từ khóa từ ${file.name}`);
+        event.target.value = "";
+        return;
       } catch (error) {
         setGscStatus(error instanceof Error ? `Không đọc được ZIP: ${error.message}` : "Không đọc được file ZIP GSC.");
         event.target.value = "";
         return;
       }
     }
-    const lines = gscZipRows ? [] : await decodeTabularFile(file);
+
+    const lines = await decodeTabularFile(file);
+    if (!lines.length) { setGscStatus("File CSV rỗng hoặc không có dữ liệu hợp lệ."); event.target.value = ""; return; }
     const delimiter = detectDelimiter(lines);
     let headers = parseCsvLine(lines[0], delimiter);
     let dataLines = lines.slice(1);
-    const imported = module === "rankings" ? (gscZipRows || (() => {
-      const keywordAliases = ["Truy vấn phổ biến nhất", "Truy vấn", "Query", "Top queries", "Search query", "Cụm từ tìm kiếm", "Từ khóa", "Từ khoá", "Keyword", "Search term", "Search terms"];
-      const clicksAliases = ["Lượt nhấp", "Số lượt nhấp", "Clicks", "Click"];
-      const impressionsAliases = ["Lượt hiển thị", "Số lượt hiển thị", "Impressions", "Impression"];
-      const headerRowIndex = lines.slice(0, 40).findIndex(line => {
-        const normalized = parseCsvLine(line, delimiter).map(normalizeCsvHeader);
-        return keywordAliases.some(alias => normalized.some(header => header === normalizeCsvHeader(alias) || header.includes(normalizeCsvHeader(alias))))
-          && clicksAliases.some(alias => normalized.some(header => header === normalizeCsvHeader(alias) || header.includes(normalizeCsvHeader(alias))))
-          && impressionsAliases.some(alias => normalized.some(header => header === normalizeCsvHeader(alias) || header.includes(normalizeCsvHeader(alias))));
-      });
-      const chartHeaderIndex = lines.slice(0, 40).findIndex(line => {
-        const normalized = parseCsvLine(line, delimiter).map(normalizeCsvHeader);
-        const hasDate = normalized.some(header => ["ngay", "date"].includes(header));
-        const hasClicks = clicksAliases.some(alias => normalized.some(header => header === normalizeCsvHeader(alias) || header.includes(normalizeCsvHeader(alias))));
-        const hasImpressions = impressionsAliases.some(alias => normalized.some(header => header === normalizeCsvHeader(alias) || header.includes(normalizeCsvHeader(alias))));
-        const hasKeyword = keywordAliases.some(alias => normalized.some(header => header === normalizeCsvHeader(alias) || header.includes(normalizeCsvHeader(alias))));
-        return hasDate && hasClicks && hasImpressions && !hasKeyword;
-      });
-      const selectedHeaderIndex = headerRowIndex >= 0 ? headerRowIndex : chartHeaderIndex;
-      if (selectedHeaderIndex < 0) return null;
-      headers = parseCsvLine(lines[selectedHeaderIndex], delimiter);
-      dataLines = lines.slice(selectedHeaderIndex + 1);
-      const headerMap = new Map(headers.map((header, index) => [normalizeCsvHeader(header), index]));
-      const findColumn = (...names: string[]) => {
-        const normalizedNames = names.map(normalizeCsvHeader);
-        const exact = normalizedNames.map(name => headerMap.get(name)).find(index => index !== undefined);
-        if (exact !== undefined) return exact;
-        const partial = headers.findIndex(header => normalizedNames.some(name => normalizeCsvHeader(header).includes(name)));
-        return partial >= 0 ? partial : undefined;
-      };
-      const keywordIndex = findColumn(...keywordAliases);
-      const pageIndex = findColumn("Trang phổ biến nhất", "Trang", "Page", "Top pages", "Landing page", "Trang đích", "Final URL", "URL");
-      const clicksIndex = findColumn(...clicksAliases);
-      const impressionsIndex = findColumn(...impressionsAliases);
-      const ctrIndex = findColumn("CTR", "Tỷ lệ nhấp", "Tỷ lệ nhấp chuột");
-      const positionIndex = findColumn("Vị trí", "Vị trí trung bình", "Position", "Average position", "Avg. position");
-      const dateIndex = findColumn("Ngày", "Date");
-      if (headerRowIndex < 0) {
-        if (dateIndex === undefined || clicksIndex === undefined || impressionsIndex === undefined) return null;
-        return dataLines.map(line => {
-          const values = parseCsvLine(line, delimiter);
-          const date = normalizeImportDate(values[dateIndex], importDate);
-          const clicks = csvInteger(values[clicksIndex]);
-          const impressions = csvInteger(values[impressionsIndex]);
-          return normalizeRow(module, {
-            id: uid("GSC-TOTAL"), keyword: `Tổng hiệu suất GSC ${date}`, page: "", gscSummary: true,
-            position: positionIndex === undefined ? 0 : csvDecimal(values[positionIndex]), previous: 0, clicks, impressions,
-            ctr: ctrIndex === undefined ? (impressions ? clicks / impressions * 100 : 0) : csvDecimal(values[ctrIndex]), date, source: file.name,
-          });
-        }).filter(row => row.date && (Number(row.clicks) > 0 || Number(row.impressions) > 0));
-      }
-      if (keywordIndex === undefined || clicksIndex === undefined || impressionsIndex === undefined || ctrIndex === undefined || positionIndex === undefined) return null;
-      return dataLines.map(line => {
-        const values = parseCsvLine(line, delimiter);
-        const keyword = String(values[keywordIndex] || "").trim();
-        const position = csvDecimal(values[positionIndex]);
-        return normalizeRow(module, {
-          id: uid(meta.prefix), keyword, page: pageIndex === undefined ? "" : values[pageIndex] || "",
-          position, previous: position, clicks: csvInteger(values[clicksIndex]), impressions: csvInteger(values[impressionsIndex]),
-          ctr: csvDecimal(values[ctrIndex]), date: importDate, source: file.name,
-        });
-      }).filter(row => row.keyword && !["total", "tong", "tổng"].includes(String(row.keyword).trim().toLowerCase()));
-    })()) : module === "analytics" ? (() => {
+    const imported = module === "rankings" ? await parseGscFile(file, importDate) : module === "analytics" ? (() => {
       const isOverviewReport = lines.some(line => normalizeCsvHeader(line).includes("tong quan nhanh ve bao cao"));
       const fileEndMatch = lines.map(line => line.match(/^#\s*Ngày kết thúc:\s*(\d{8})/i)).find(Boolean);
       const reportDate = normalizeImportDate(fileEndMatch?.[1] || "", importDate);
@@ -978,11 +982,31 @@ function ModuleView({ module, rows, setRows, onChange, onRecordSaved, onOpenSour
         });
       }).filter(row => String(row.channel || "").toLowerCase() !== "total" && ["sessions", "users", "newUsers", "engagedSessions", "conversions", "revenue"].some(key => Number(row[key] || 0) !== 0));
     })() : dataLines.map(line => { const values = parseCsvLine(line, delimiter); const row: Row = { id: uid(meta.prefix) }; headers.forEach((key, index) => row[key] = values[index] ?? ""); return normalizeRow(module, row); });
-    if (!imported?.length) { setGscStatus(module === "analytics" ? "Không nhận diện được cột Sessions hoặc file không có dòng dữ liệu GA4." : "Không đọc được file. Cần có: Cụm từ tìm kiếm/Truy vấn, Số lượt nhấp, Số lượt hiển thị, CTR và Vị trí trung bình."); event.target.value = ""; return; }
+
+    if (!imported?.length) {
+      setGscStatus(module === "analytics" ? "Không nhận diện được cột Sessions hoặc file không có dòng dữ liệu GA4." : module === "rankings" ? "Không đọc được file CSV GSC. Cần có: Cụm từ tìm kiếm/Truy vấn, Số lượt nhấp, Số lượt hiển thị." : "Không đọc được dữ liệu từ file CSV.");
+      event.target.value = "";
+      return;
+    }
+
     if (module === "rankings") {
-      const importedKeys = new Set(imported.map(row => `${String(row.keyword).trim().toLowerCase()}|${String(row.page || "").trim().toLowerCase()}|${row.date}`));
+      const existingKeywordMap = new Map<string, Row>();
+      rows.forEach(row => {
+        if (row.gscSummary !== true && row.keyword) {
+          existingKeywordMap.set(String(row.keyword).trim().toLowerCase(), row);
+        }
+      });
+      const enrichedImported = imported.map(row => {
+        if (row.gscSummary === true) return row;
+        const key = String(row.keyword || "").trim().toLowerCase();
+        const prev = existingKeywordMap.get(key);
+        const currentPos = Number(row.position || 0);
+        const prevPos = prev && prev.date !== row.date && Number(prev.position || 0) > 0 ? Number(prev.position) : currentPos;
+        return { ...row, previous: prevPos };
+      });
+      const importedKeys = new Set(enrichedImported.map(row => `${String(row.keyword).trim().toLowerCase()}|${String(row.page || "").trim().toLowerCase()}|${row.date}`));
       const preserved = rows.filter(row => !importedKeys.has(`${String(row.keyword).trim().toLowerCase()}|${String(row.page || "").trim().toLowerCase()}|${row.date}`));
-      setRows([...imported, ...preserved]);
+      setRows([...enrichedImported, ...preserved]);
     } else if (module === "analytics") {
       const importedKeys = new Set(imported.map(row => `${row.date}|${String(row.channel).trim().toLowerCase()}`));
       const preserved = rows.filter(row => !importedKeys.has(`${row.date}|${String(row.channel).trim().toLowerCase()}`));
@@ -1011,8 +1035,8 @@ function ModuleView({ module, rows, setRows, onChange, onRecordSaved, onOpenSour
   return <>
     <section className="page-heading"><div><p className="eyebrow">{meta.eyebrow}</p><h2>{meta.title}</h2><p className="muted">{meta.description}</p>{(module === "rankings" || module === "analytics") && gscStatus && <p className={gscStatus.startsWith("Không") ? "sync-status error" : "sync-status"}>{gscStatus}</p>}</div><div className="button-row">{module === "rankings" && <><button className="secondary" onClick={() => { window.location.href = "/api/search-console/auth?returnTo=/rankings"; }}>Kết nối GSC</button><button className="secondary" onClick={syncSearchConsole}>↻ Đồng bộ GSC</button></>}{(module === "rankings" || module === "analytics") && <button className="danger-button" disabled={!rows.length} onClick={() => setClearing(true)}>Xóa sạch dữ liệu</button>}<button className="primary" onClick={() => { setEditing(null); setOpen(true); }}>＋ Thêm bản ghi</button></div></section>
     {dateKeys.length > 0 && <DateFilterBar preset={datePreset} from={dateFrom} to={dateTo} onPreset={applyDatePreset} onFrom={value => { setDatePreset("custom"); setDateFrom(value); }} onTo={value => { setDatePreset("custom"); setDateTo(value); }} />}
-    <div className="toolbar"><div className="toolbar-left"><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Tìm kiếm dữ liệu…" />{statuses.length > 0 && <select value={status} onChange={event => setStatus(event.target.value)}><option>All</option>{statuses.map(item => <option key={item}>{item}</option>)}</select>}{module === "audits" && auditCategories.length > 0 && <select aria-label="Lọc theo nhóm lỗi" value={auditCategory} onChange={event => setAuditCategory(event.target.value)}><option value="All">Tất cả nhóm lỗi</option>{auditCategories.map(item => <option key={item}>{item}</option>)}</select>}{module === "worklogs" && workGroups.length > 0 && <select value={workGroup} onChange={event => setWorkGroup(event.target.value)}><option value="All">Tất cả nhóm công việc</option>{workGroups.map(item => <option key={item}>{item}</option>)}</select>}{module === "rankings" && <><select value={rankBand} onChange={event => setRankBand(event.target.value)}><option value="All">Tất cả thứ hạng</option><option value="top3">Top 3</option><option value="top10">Top 10</option><option value="top20">Top 20</option><option value="21-50">Top 21–50</option><option value="51-100">Top 51–100</option><option value="100+">Ngoài Top 100</option><option value="unknown">Chưa có thứ hạng</option></select><select value={rankSort} onChange={event => setRankSort(event.target.value)}><option value="position">Sắp xếp: Vị trí</option><option value="keyword">Sắp xếp: Keyword</option><option value="clicks">Sắp xếp: Clicks</option><option value="impressions">Sắp xếp: Impressions</option><option value="ctr">Sắp xếp: CTR</option></select><button className="secondary sort-direction" onClick={() => setRankDirection(current => current === "asc" ? "desc" : "asc")}>{rankDirection === "asc" ? "Tăng dần ↑" : "Giảm dần ↓"}</button></>}</div><div className="button-row">{(module === "rankings" || module === "analytics") && <label className="import-date"><span>Ngày áp dụng</span><input aria-label="Ngày áp dụng dữ liệu nhập" type="date" value={importDate} onChange={event => setImportDate(event.target.value)} /></label>}<input ref={fileRef} hidden type="file" accept={module === "rankings" ? ".zip,.csv,.tsv,application/zip,text/csv,text/tab-separated-values" : ".csv,.tsv,text/csv,text/tab-separated-values"} onChange={importCsv} /><button className="secondary" onClick={() => fileRef.current?.click()}>{module === "rankings" ? "Nhập ZIP / CSV GSC" : module === "analytics" ? "Nhập CSV GA4" : "Nhập CSV"}</button><button className="secondary" onClick={exportCsv}>Xuất CSV</button></div></div>
-    {module === "rankings" && <p className="import-help">Có thể nhập thẳng file <b>.zip</b> tải từ Search Console. Hệ thống tự lấy <b>Cụm từ tìm kiếm.csv</b> cho bảng từ khóa và <b>Sơ đồ.csv</b> cho KPI tổng, bỏ qua các file không cần thiết.</p>}
+    <div className="toolbar"><div className="toolbar-left"><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Tìm kiếm dữ liệu…" />{statuses.length > 0 && <select value={status} onChange={event => setStatus(event.target.value)}><option>All</option>{statuses.map(item => <option key={item}>{item}</option>)}</select>}{module === "audits" && auditCategories.length > 0 && <select aria-label="Lọc theo nhóm lỗi" value={auditCategory} onChange={event => setAuditCategory(event.target.value)}><option value="All">Tất cả nhóm lỗi</option>{auditCategories.map(item => <option key={item}>{item}</option>)}</select>}{module === "worklogs" && workGroups.length > 0 && <select value={workGroup} onChange={event => setWorkGroup(event.target.value)}><option value="All">Tất cả nhóm công việc</option>{workGroups.map(item => <option key={item}>{item}</option>)}</select>}{module === "rankings" && <><select value={rankBand} onChange={event => setRankBand(event.target.value)}><option value="All">Tất cả thứ hạng</option><option value="top3">Top 3</option><option value="top10">Top 10</option><option value="top20">Top 20</option><option value="21-50">Top 21–50</option><option value="51-100">Top 51–100</option><option value="100+">Ngoài Top 100</option><option value="unknown">Chưa có thứ hạng</option></select><select value={rankSort} onChange={event => setRankSort(event.target.value)}><option value="position">Sắp xếp: Vị trí</option><option value="keyword">Sắp xếp: Keyword</option><option value="clicks">Sắp xếp: Clicks</option><option value="impressions">Sắp xếp: Impressions</option><option value="ctr">Sắp xếp: CTR</option></select><button className="secondary sort-direction" onClick={() => setRankDirection(current => current === "asc" ? "desc" : "asc")}>{rankDirection === "asc" ? "Tăng dần ↑" : "Giảm dần ↓"}</button></>}</div><div className="button-row">{(module === "rankings" || module === "analytics") && <label className="import-date"><span>Ngày áp dụng</span><input aria-label="Ngày áp dụng dữ liệu nhập" type="date" value={importDate} onChange={event => setImportDate(event.target.value)} /></label>}<input ref={fileRef} hidden type="file" accept={module === "rankings" ? ".zip,.csv,.tsv,application/zip,application/x-zip-compressed,multipart/x-zip,text/csv,text/tab-separated-values" : ".csv,.tsv,text/csv,text/tab-separated-values"} onChange={importCsv} /><button className="secondary" onClick={() => fileRef.current?.click()}>{module === "rankings" ? "Nhập ZIP / CSV GSC" : module === "analytics" ? "Nhập CSV GA4" : "Nhập CSV"}</button><button className="secondary" onClick={exportCsv}>Xuất CSV</button></div></div>
+    {module === "rankings" && <p className="import-help">Có thể nhập thẳng file <b>.zip</b> tải từ Search Console (tiếng Việt hoặc tiếng Anh). Hệ thống tự nhận diện file từ khóa (<b>Queries.csv</b> / <b>Cụm từ tìm kiếm.csv</b>) và ngày hiệu suất (<b>Dates.csv</b> / <b>Ngày.csv</b> / <b>Sơ đồ.csv</b>), tự động tính CTR và cập nhật thứ hạng.</p>}
     <div className="panel full">{module === "content" ? <ContentPlanTable rows={visibleRows} actions={rowActions} /> : <SimpleTable rows={visibleRows} columns={meta.columns} showIndex={module === "rankings"} indexOffset={module === "rankings" ? (rankPage - 1) * rankPageSize : 0} actions={rowActions} />}</div>
     {module === "rankings" && <div className="pagination"><span>Hiển thị {filtered.length ? (rankPage - 1) * rankPageSize + 1 : 0}–{Math.min(rankPage * rankPageSize, filtered.length)} / {filtered.length} keyword</span><div><button className="secondary" disabled={rankPage <= 1} onClick={() => setRankPage(page => Math.max(1, page - 1))}>← Trước</button><b>Trang {rankPage} / {rankTotalPages}</b><button className="secondary" disabled={rankPage >= rankTotalPages} onClick={() => setRankPage(page => Math.min(rankTotalPages, page + 1))}>Sau →</button></div></div>}
     {open && <EditorModal title={`${editing ? "Sửa" : "Thêm"} ${meta.title}`} module={module} row={editing || { id: uid(meta.prefix) }} personnel={personnel} defaultOwner={personnel.find(person => String(person.status || "Active") !== "Inactive")?.name?.toString() || ""} onSave={save} onClose={() => { setOpen(false); setEditing(null); }} />}
