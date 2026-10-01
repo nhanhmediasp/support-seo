@@ -381,6 +381,7 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
   const [gscUrlInput, setGscUrlInput] = useState("");
   const [analyticsUrlInput, setAnalyticsUrlInput] = useState("");
   const [activeZoomImage, setActiveZoomImage] = useState<{ url: string; title: string } | null>(null);
+  const [openingReportId, setOpeningReportId] = useState("");
   const [editingId, setEditingId] = useState(viewOnlyReport?.id || "");
   const [createdAt, setCreatedAt] = useState(viewOnlyReport?.createdAt || new Date().toISOString());
   const liveSnapshot = useMemo(() => rangeData(data, from, to), [data, from, to]);
@@ -876,22 +877,39 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
     notify("Đã xóa bản báo cáo");
   };
   const publishReport = async (source: SavedSeoReport, copyOnly = false) => {
+    if (openingReportId) return;
+    if (!copyOnly) setOpeningReportId(source.id);
     const shareToken = source.shareToken || crypto.randomUUID().replaceAll("-", "");
     const published: SavedSeoReport = { ...source, shareToken, publishedAt: new Date().toISOString() };
     const payload: PublicSeoReportPayload = { report: published, settings };
-    localStorage.setItem(`seo-public-report-${shareToken}`, JSON.stringify(payload));
+    let localPublished = false;
+    try {
+      localStorage.setItem(`seo-public-report-${shareToken}`, JSON.stringify(payload));
+      localPublished = true;
+    } catch {
+      notify("Bộ nhớ trình duyệt không đủ để mở báo cáo; đang thử tải bản cloud");
+    }
     let cloudPublished = false;
-    if (supabaseConfigured && supabase && projectId) {
-      const { error } = await supabase.from("public_report_shares").upsert({ site_id: projectId, share_token: shareToken, payload, updated_at: new Date().toISOString() }, { onConflict: "share_token" });
-      if (error) notify(`Chưa đăng công khai được: ${error.message}`);
-      else cloudPublished = true;
+    try {
+      if (supabaseConfigured && supabase && projectId) {
+        const { error } = await supabase.from("public_report_shares").upsert({ site_id: projectId, share_token: shareToken, payload, updated_at: new Date().toISOString() }, { onConflict: "share_token" });
+        if (error) notify(`Chưa đăng công khai được: ${error.message}`);
+        else cloudPublished = true;
+      }
+    } catch (error) {
+      notify(error instanceof Error ? `Chưa đăng công khai được: ${error.message}` : "Chưa đăng công khai được báo cáo");
     }
     onSaveReports(savedReports.map(report => report.id === source.id ? published : report));
     const url = `${window.location.origin}/report/${shareToken}`;
     if (copyOnly) {
       await navigator.clipboard.writeText(url);
       notify(cloudPublished ? "Đã sao chép link công khai gửi khách" : "Đã sao chép link; cần bật cloud để khách mở trên thiết bị khác");
-    } else window.open(url, "_blank", "noopener,noreferrer");
+    } else if (localPublished || cloudPublished) {
+      window.location.assign(url);
+    } else {
+      setOpeningReportId("");
+      notify("Không thể mở báo cáo vì bản xem chưa được lưu. Hãy giảm dung lượng ảnh rồi thử lại.");
+    }
   };
   const exportCsv = () => {
     const lines: (string | number)[][] = [[title], [settings.name, settings.domain], ["Từ ngày", from, "Đến ngày", to], ["Người lập", author], [], ["Chỉ số", "Giá trị"], ...metrics.map(item => [String(item[0]), String(item[1])]), [], ["Nhận xét tổng quan", summary], ["Nhận xét tháng này", monthlyReview], ["Kế hoạch tháng tới", nextPlan]];
@@ -1320,17 +1338,17 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
 
   if (mode === "list") return <div className="report-builder">
     <section className="page-heading"><div><p className="eyebrow">SEO REPORT LIBRARY</p><h2>Báo cáo SEO</h2><p className="muted">Quản lý các báo cáo đã tạo, mở trang xem hoặc sao chép đường dẫn gửi khách hàng.</p></div><button className="primary" onClick={newReport}>＋ Tạo báo cáo mới</button></section>
-    {savedReports.length ? <section className="report-library">{savedReports.map(report => <article className="report-library-card" key={report.id}><div className="report-library-icon">SEO</div><div className="report-library-copy"><span className={report.shareToken ? "report-publish-status published" : "report-publish-status"}>{report.shareToken ? "Đã có link chia sẻ" : "Bản nội bộ"}</span><h3>{report.title}</h3><p>{formatDate(report.from)} – {formatDate(report.to)}</p><small>Người lập: {report.author} · Cập nhật {formatDateTime(report.updatedAt, settings.timezone)}</small></div><div className="report-library-actions"><button className="primary" onClick={() => void publishReport(report)}>Xem</button><button className="secondary" onClick={() => loadReport(report)}>Sửa</button><button className="secondary" onClick={() => void publishReport(report, true)}>Sao chép link</button><button className="danger-button" onClick={() => void deleteReport(report.id)}>Xóa</button></div></article>)}</section> : <section className="report-library-empty panel"><div className="report-library-icon">SEO</div><h3>Chưa có báo cáo nào</h3><p>Tạo báo cáo đầu tiên, chọn nội dung cần hiển thị rồi lưu lại để xem hoặc gửi khách hàng.</p><button className="primary" onClick={newReport}>Tạo báo cáo đầu tiên</button></section>}
+    {savedReports.length ? <section className="report-library">{savedReports.map(report => <article className="report-library-card" key={report.id}><div className="report-library-icon">SEO</div><div className="report-library-copy"><span className={report.shareToken ? "report-publish-status published" : "report-publish-status"}>{report.shareToken ? "Đã có link chia sẻ" : "Bản nội bộ"}</span><h3>{report.title}</h3><p>{formatDate(report.from)} – {formatDate(report.to)}</p><small>Người lập: {report.author} · Cập nhật {formatDateTime(report.updatedAt, settings.timezone)}</small></div><div className="report-library-actions"><button className="primary" disabled={openingReportId === report.id} onClick={() => void publishReport(report)}>{openingReportId === report.id ? "Đang mở…" : "Xem"}</button><button className="secondary" onClick={() => loadReport(report)}>Sửa</button><button className="secondary" onClick={() => void publishReport(report, true)}>Sao chép link</button><button className="danger-button" onClick={() => void deleteReport(report.id)}>Xóa</button></div></article>)}</section> : <section className="report-library-empty panel"><div className="report-library-icon">SEO</div><h3>Chưa có báo cáo nào</h3><p>Tạo báo cáo đầu tiên, chọn nội dung cần hiển thị rồi lưu lại để xem hoặc gửi khách hàng.</p><button className="primary" onClick={newReport}>Tạo báo cáo đầu tiên</button></section>}
   </div>;
 
   return <div className="report-builder">
-    <section className="page-heading print-hide"><div><p className="eyebrow">MONTHLY SEO REPORT BUILDER</p><h2>{editingId ? "Chỉnh sửa báo cáo" : "Tạo báo cáo mới"}</h2><p className="muted">Chọn nội dung, chỉnh sửa nhận xét và lưu báo cáo trước khi mở trang xem riêng.</p></div><div className="button-row"><button className="secondary" onClick={() => setMode("list")}>← Danh sách báo cáo</button><button className="secondary" onClick={exportCsv}>Xuất CSV</button></div></section>
+    <section className="page-heading print-hide"><div><p className="eyebrow">MONTHLY SEO REPORT BUILDER</p><h2>{editingId ? "Chỉnh sửa báo cáo" : "Tạo báo cáo mới"}</h2><p className="muted">Chọn nội dung, chỉnh sửa nhận xét và lưu báo cáo trước khi mở trang xem riêng.</p></div><div className="button-row"><button className="secondary" onClick={() => setMode("list")}>← Danh sách báo cáo</button><button className="secondary" onClick={() => document.getElementById("report-chart-images")?.scrollIntoView({ behavior: "smooth", block: "start" })}>Ảnh GSC / GA4</button><button className="secondary" onClick={exportCsv}>Xuất CSV</button></div></section>
     {(!rankings.length || !analytics.length) && <section className="report-data-notice panel print-hide"><div><b>Thiếu dữ liệu hiệu suất trong kỳ</b><p>{!rankings.length ? "Search Console chưa có dữ liệu. " : ""}{!analytics.length ? "Google Analytics chưa có dữ liệu." : ""} Bạn có thể nhập từng bản ghi hoặc tải file CSV, không cần kết nối tài khoản Google.</p></div><div className="button-row">{!rankings.length && <button className="secondary" onClick={() => onNavigate("rankings")}>Nhập dữ liệu GSC</button>}{!analytics.length && <button className="primary" onClick={() => onNavigate("analytics")}>Nhập traffic GA4</button>}</div></section>}
     <section className="report-composer panel print-hide">
       <div className="report-fields"><label className="wide"><span>Tên báo cáo</span><input value={title} onChange={event => setTitle(event.target.value)} /></label><label><span>Từ ngày</span><input type="date" value={from} onChange={event => { setFrom(event.target.value); setLoadedSnapshot(null); }} /></label><label><span>Đến ngày</span><input type="date" value={to} onChange={event => { setTo(event.target.value); setLoadedSnapshot(null); }} /></label><label><span>Người lập báo cáo</span><input value={author} onChange={event => setAuthor(event.target.value)} /></label></div>
       <div className="report-editor-grid"><div><div className="report-editor-title"><h3>Nội dung báo cáo</h3><small>Bật/tắt, đổi tên và sắp xếp từng mục</small></div><div className="report-section-list">{sections.map((section, index) => <div className={section.enabled ? "enabled" : ""} key={section.key}><input aria-label={`Hiển thị ${section.title}`} type="checkbox" checked={section.enabled} onChange={event => updateSection(index, { enabled: event.target.checked })} /><input value={section.title} onChange={event => updateSection(index, { title: event.target.value })} /><button disabled={index === 0} onClick={() => moveSection(index, -1)} aria-label="Đưa mục lên">↑</button><button disabled={index === sections.length - 1} onClick={() => moveSection(index, 1)} aria-label="Đưa mục xuống">↓</button></div>)}</div></div><div className="report-copy-editors"><label><span>Nhận xét tổng quan</span><textarea value={summary} onChange={event => setSummary(event.target.value)} /></label><label><span>Nhận xét tháng này</span><textarea value={monthlyReview} onChange={event => setMonthlyReview(event.target.value)} placeholder="Đánh giá kết quả, điểm nổi bật và vấn đề trong tháng…" /></label><label><span>Kế hoạch tháng tới</span><textarea value={nextPlan} onChange={event => setNextPlan(event.target.value)} /></label><label><span>Ghi chú / đề xuất</span><textarea value={notes} onChange={event => setNotes(event.target.value)} placeholder="Đề xuất ngân sách, nội dung cần khách hàng duyệt, rủi ro…" /></label></div></div>
 
-      <section className="report-image-uploader-section">
+      <section className="report-image-uploader-section" id="report-chart-images">
         <div className="report-editor-title">
           <div>
             <h3>Hình ảnh biểu đồ trực quan (Google Search Console & Google Analytics)</h3>
