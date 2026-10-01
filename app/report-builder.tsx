@@ -50,6 +50,16 @@ const sectionDefaults: SectionConfig[] = [
   { key: "notes", title: "Ghi chú & đề xuất", enabled: true },
 ];
 
+const placeAnalyticsAfterGsc = (source: SectionConfig[]) => {
+  const missing = sectionDefaults.filter(defaultSection => !source.some(section => section.key === defaultSection.key));
+  const merged = [...source, ...missing];
+  const analytics = merged.find(section => section.key === "analytics");
+  const ordered = merged.filter(section => section.key !== "analytics");
+  const gscIndex = ordered.findIndex(section => section.key === "gsc");
+  if (analytics) ordered.splice(gscIndex >= 0 ? gscIndex + 1 : 0, 0, analytics);
+  return ordered;
+};
+
 const today = () => new Date().toISOString().slice(0, 10);
 const firstDayOfMonth = () => `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-01`;
 const uid = () => `REPORT-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
@@ -138,7 +148,7 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
   const [to, setTo] = useState(viewOnlyReport?.to || today());
   const [title, setTitle] = useState(viewOnlyReport?.title || `Báo cáo SEO tháng ${new Date().getMonth() + 1}/${new Date().getFullYear()}`);
   const [author, setAuthor] = useState(viewOnlyReport?.author || settings.owner);
-  const [sections, setSections] = useState(viewOnlyReport?.sections || sectionDefaults);
+  const [sections, setSections] = useState(() => placeAnalyticsAfterGsc(viewOnlyReport?.sections || sectionDefaults));
   const [summary, setSummary] = useState(viewOnlyReport?.summary || "");
   const [monthlyReview, setMonthlyReview] = useState(viewOnlyReport?.monthlyReview || "");
   const [nextPlan, setNextPlan] = useState(viewOnlyReport?.nextPlan || "");
@@ -224,7 +234,7 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
   const saveReport = async () => {
     const now = new Date().toISOString();
     const existing = savedReports.find(item => item.id === editingId);
-    const report: SavedSeoReport = { id: editingId || uid(), title: title.trim() || "Báo cáo SEO", from, to, author: author.trim() || settings.owner, createdAt: editingId ? createdAt : now, updatedAt: now, sections, summary, monthlyReview, nextPlan, notes, snapshot: liveSnapshot, signatures, shareToken: existing?.shareToken, publishedAt: existing?.shareToken ? now : existing?.publishedAt };
+    const report: SavedSeoReport = { id: editingId || uid(), title: title.trim() || "Báo cáo SEO", from, to, author: author.trim() || settings.owner, createdAt: editingId ? createdAt : now, updatedAt: now, sections: placeAnalyticsAfterGsc(sections), summary, monthlyReview, nextPlan, notes, snapshot: liveSnapshot, signatures, shareToken: existing?.shareToken, publishedAt: existing?.shareToken ? now : existing?.publishedAt };
     const next = editingId ? savedReports.map(item => item.id === editingId ? report : item) : [report, ...savedReports].slice(0, 24);
     if (report.shareToken) {
       const payload: PublicSeoReportPayload = { report: { ...report, publishedAt: now }, settings };
@@ -234,8 +244,7 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
     onSaveReports(next); setEditingId(report.id); setCreatedAt(report.createdAt); setLoadedSnapshot(report.snapshot); setMode("list"); notify(editingId ? "Đã cập nhật bản báo cáo" : "Đã lưu bản báo cáo mới");
   };
   const loadReport = (report: SavedSeoReport) => {
-    const missingSections = sectionDefaults.filter(defaultSection => !report.sections.some(section => section.key === defaultSection.key));
-    setMode("edit"); setEditingId(report.id); setTitle(report.title); setFrom(report.from); setTo(report.to); setAuthor(report.author); setSections([...report.sections, ...missingSections]); setSummary(report.summary); setMonthlyReview(report.monthlyReview || report.summary); setNextPlan(report.nextPlan); setNotes(report.notes); setSignatures(report.signatures || emptySignatures(report.author || settings.owner)); setCreatedAt(report.createdAt); setLoadedSnapshot(report.snapshot); notify("Đã mở bản báo cáo để chỉnh sửa");
+    setMode("edit"); setEditingId(report.id); setTitle(report.title); setFrom(report.from); setTo(report.to); setAuthor(report.author); setSections(placeAnalyticsAfterGsc(report.sections)); setSummary(report.summary); setMonthlyReview(report.monthlyReview || report.summary); setNextPlan(report.nextPlan); setNotes(report.notes); setSignatures(report.signatures || emptySignatures(report.author || settings.owner)); setCreatedAt(report.createdAt); setLoadedSnapshot(report.snapshot); notify("Đã mở bản báo cáo để chỉnh sửa");
   };
   const deleteReport = async (id: string) => {
     if (!window.confirm("Xóa bản báo cáo này?")) return;
