@@ -2,11 +2,12 @@
 
 import { ChangeEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { localModeAllowed, Project, supabase, supabaseConfigured } from "../lib/supabase";
+import ReportBuilder, { SavedSeoReport } from "./report-builder";
 
 type Row = Record<string, string | number | boolean> & { id: string };
 type Field = { key: string; label: string; type?: "text" | "number" | "date" | "select" | "textarea" | "checkbox"; options?: string[]; required?: boolean };
 type ModuleKey = "tasks" | "content" | "calendar" | "onpage" | "audits" | "indexing" | "backlinks" | "entities" | "seeding" | "rankings" | "worklogs" | "changes" | "personnel" | "expenses";
-type SiteSettings = { name: string; domain: string; owner: string; email: string; timezone: string };
+type SiteSettings = { name: string; domain: string; owner: string; email: string; timezone: string; reports?: SavedSeoReport[] };
 type AppData = Record<ModuleKey, Row[]>;
 type ConfirmConfig = { eyebrow: string; title: string; description: string; confirmLabel: string; danger?: boolean; onConfirm: () => void };
 type RecordTarget = { module: ModuleKey; id: string };
@@ -547,7 +548,7 @@ export default function Home() {
       <header className="topbar"><div><div className="breadcrumb">{settings.name.toUpperCase()} <span>/</span> {new Date().toLocaleDateString("vi-VN")}</div><h1>{active === "settings" ? "Cài đặt hệ thống" : active === "reports" ? "Báo cáo KPI" : active === "dashboard" ? "Dashboard" : moduleMeta[moduleKey]?.title}</h1></div><div className="top-actions"><button className="automation" onClick={runAutomation}>Chạy tự động hóa</button><div className="account-wrap"><button className="account-button" onClick={() => setAccountMenuOpen(value => !value)}><span className="account-avatar">{supabaseConfigured && accountEmail ? accountEmail.slice(0, 1).toUpperCase() : "SEO"}</span><span><b>{supabaseConfigured && accountEmail ? accountEmail : "Local workspace"}</b><small>{supabaseConfigured ? "Tài khoản Google/Supabase" : "Chưa đăng nhập cloud"}</small></span><strong>⌄</strong></button>{accountMenuOpen && <div className="account-menu">{supabaseConfigured ? <><div className="account-menu-head"><b>{accountEmail || "Tài khoản hiện tại"}</b><small>Đang đăng nhập</small></div><button onClick={() => navigate("settings")}>Cài đặt tài khoản</button><button className="logout-button" onClick={logout}>Đăng xuất</button></> : <><div className="account-menu-head"><b>Local workspace</b><small>Dữ liệu đang lưu trên thiết bị này</small></div><button onClick={() => { window.location.href = "/auth"; }}>Đăng nhập / Đăng ký</button></>}</div>}</div></div></header>
       <div className="content-wrap">
         {active === "dashboard" && <Dashboard data={data} settings={settings} setActive={navigate} runAutomation={runAutomation} />}
-        {active === "reports" && <ReportWithGsc data={data} settings={settings} />}
+        {active === "reports" && <ReportBuilder data={data} settings={settings} savedReports={settings.reports || []} onSaveReports={reports => setSettings({ ...settings, reports })} notify={setToast} />}
         {active === "settings" && <Settings data={data} setData={setData} settings={settings} setSettings={setSettings} notify={setToast} requestConfirm={setConfirmDialog} />}
         {moduleMeta[moduleKey] && <ModuleView module={moduleKey} rows={data[moduleKey]} setRows={rows => saveRows(moduleKey, rows)} onChange={addChange} onRecordSaved={syncActivityLog} onOpenSource={openSourceRecord} focusRecordId={recordTarget?.module === moduleKey ? recordTarget.id : ""} onFocusHandled={() => setRecordTarget(null)} siteUrl={settings.domain} personnel={data.personnel} />}
       </div>
