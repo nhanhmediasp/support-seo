@@ -11,6 +11,11 @@ type SectionConfig = { key: SectionKey; title: string; enabled: boolean };
 type ReportSignature = { name: string; role: string; imageUrl: string; signedAt: string; verified: boolean };
 type ReportSignatures = { freelancer: ReportSignature; reviewer: ReportSignature };
 
+export type ReportImageItem = {
+  url: string;
+  caption?: string;
+};
+
 export type SavedSeoReport = {
   id: string;
   title: string;
@@ -28,6 +33,8 @@ export type SavedSeoReport = {
   signatures?: ReportSignatures;
   shareToken?: string;
   publishedAt?: string;
+  gscImages?: (string | ReportImageItem)[];
+  analyticsImages?: (string | ReportImageItem)[];
 };
 
 export type PublicSeoReportPayload = { report: SavedSeoReport; settings: ReportSettings };
@@ -50,15 +57,54 @@ const sectionDefaults: SectionConfig[] = [
   { key: "notes", title: "Ghi chú & đề xuất", enabled: true },
 ];
 
-const placeAnalyticsAfterGsc = (source: SectionConfig[]) => {
+export const normalizeSections = (source: SectionConfig[]): SectionConfig[] => {
   const missing = sectionDefaults.filter(defaultSection => !source.some(section => section.key === defaultSection.key));
-  const merged = [...source, ...missing];
+  let merged = [...source, ...missing];
+
+  // 1. Luôn đặt Analytics ngay sau Google Search Console
   const analytics = merged.find(section => section.key === "analytics");
-  const ordered = merged.filter(section => section.key !== "analytics");
-  const gscIndex = ordered.findIndex(section => section.key === "gsc");
-  if (analytics) ordered.splice(gscIndex >= 0 ? gscIndex + 1 : 0, 0, analytics);
-  return ordered;
+  if (analytics) {
+    merged = merged.filter(section => section.key !== "analytics");
+    const gscIndex = merged.findIndex(section => section.key === "gsc");
+    merged.splice(gscIndex >= 0 ? gscIndex + 1 : 0, 0, analytics);
+  }
+
+  // 2. Luôn sắp xếp mục Kế hoạch tháng tới (nextPlan) xuống dưới Nhận xét tháng này (monthlyReview)
+  const monthlyReview = merged.find(section => section.key === "monthlyReview");
+  const nextPlan = merged.find(section => section.key === "nextPlan");
+  const notes = merged.find(section => section.key === "notes");
+
+  if (monthlyReview && nextPlan) {
+    const monthlyIndex = merged.findIndex(section => section.key === "monthlyReview");
+    const nextPlanIndex = merged.findIndex(section => section.key === "nextPlan");
+
+    // Nếu nextPlan đang đứng trước monthlyReview, chỉnh lại thứ tự
+    if (nextPlanIndex >= 0 && monthlyIndex >= 0 && nextPlanIndex < monthlyIndex) {
+      const commentaryKeys = ["monthlyReview", "nextPlan", "notes"];
+      const firstIdx = merged.findIndex(s => commentaryKeys.includes(s.key));
+      const filtered = merged.filter(s => !commentaryKeys.includes(s.key));
+      const commentarySections = [monthlyReview, nextPlan, notes].filter(Boolean) as SectionConfig[];
+      const insertAt = firstIdx >= 0 && firstIdx <= filtered.length ? firstIdx : filtered.length;
+      filtered.splice(insertAt, 0, ...commentarySections);
+      merged = filtered;
+    }
+  }
+
+  // 3. Đảm bảo notes đứng sau nextPlan nếu notes đang xen vào giữa monthlyReview và nextPlan
+  const finalMonthlyIdx = merged.findIndex(section => section.key === "monthlyReview");
+  const finalNextPlanIdx = merged.findIndex(section => section.key === "nextPlan");
+  const notesIdx = merged.findIndex(section => section.key === "notes");
+  if (notesIdx >= 0 && finalNextPlanIdx >= 0 && notesIdx < finalNextPlanIdx && notesIdx > finalMonthlyIdx) {
+    const noteSec = merged[notesIdx];
+    merged.splice(notesIdx, 1);
+    const newNextPlanIdx = merged.findIndex(section => section.key === "nextPlan");
+    merged.splice(newNextPlanIdx + 1, 0, noteSec);
+  }
+
+  return merged;
 };
+
+const placeAnalyticsAfterGsc = normalizeSections;
 
 const today = () => new Date().toISOString().slice(0, 10);
 const firstDayOfMonth = () => `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-01`;
@@ -211,6 +257,105 @@ function BeforeAfterGallery({ rows }: { rows: Row[] }) {
   return <div className="report-comparison-list">{groups.map(group => <section key={group.id} className="report-comparison-group"><h3>{group.title}</h3>{group.pairs.map((pair, index) => <div className="report-comparison-row" key={`${group.id}-${index}`}><figure><span>TRƯỚC XỬ LÝ</span>{pair.before ? <img src={pair.before} alt={`Trước xử lý: ${group.title}`} /> : <div className="report-image-placeholder">Chưa có ảnh trước xử lý</div>}</figure><figure><span>SAU XỬ LÝ</span>{pair.after ? <img src={pair.after} alt={`Sau xử lý: ${group.title}`} /> : <div className="report-image-placeholder">Chưa có ảnh sau xử lý</div>}</figure></div>)}</section>)}</div>;
 }
 
+function parseBoldText(text: string): React.ReactNode[] {
+  const parts: React.ReactNode[] = [];
+  const regex = /\*\*(.*?)\*\*/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    parts.push(<strong key={match.index}>{match[1]}</strong>);
+    lastIndex = regex.lastIndex;
+  }
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+  return parts.length ? parts : [text];
+}
+
+function ReportNarrative({ text, placeholder }: { text: string; placeholder?: string }) {
+  if (!text || !text.trim()) {
+    return (
+      <div className="report-narrative empty">
+        <p>{placeholder || "Chưa có nội dung ghi nhận."}</p>
+      </div>
+    );
+  }
+
+  const lines = text.split("\n");
+
+  return (
+    <div className="report-narrative">
+      {lines.map((rawLine, index) => {
+        const line = rawLine.trim();
+        if (!line) return <div key={index} className="report-narrative-spacer" />;
+
+        const isBullet = /^[-*•]\s+/.test(line);
+        const isNumber = /^\d+[\.)]\s+/.test(line);
+
+        let content = line;
+        let prefix = "";
+        if (isBullet) {
+          content = line.replace(/^[-*•]\s+/, "");
+          prefix = "•";
+        } else if (isNumber) {
+          const match = line.match(/^(\d+[\.)])\s+(.*)/);
+          if (match) {
+            prefix = match[1];
+            content = match[2];
+          }
+        }
+
+        const parts = parseBoldText(content);
+
+        if (isBullet || isNumber) {
+          return (
+            <div key={index} className="report-narrative-item">
+              <span className={`report-narrative-prefix ${isNumber ? "num" : "bullet"}`}>{prefix}</span>
+              <div className="report-narrative-text">{parts}</div>
+            </div>
+          );
+        }
+
+        return (
+          <p key={index} className="report-narrative-p">
+            {parts}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
+export const normalizeImages = (images?: (string | ReportImageItem)[]): ReportImageItem[] => {
+  if (!images || !Array.isArray(images)) return [];
+  return images.map(img => {
+    if (typeof img === "string") return { url: img, caption: "" };
+    return { url: img?.url || "", caption: img?.caption || "" };
+  }).filter(img => Boolean(img.url));
+};
+
+const uploadFileToCloudinaryOrDataUrl = async (file: File): Promise<string> => {
+  try {
+    const formData = new FormData();
+    formData.append("file", file, file.name);
+    const res = await fetch("/api/cloudinary/upload-from-url", { method: "POST", body: formData });
+    const json = (await res.json()) as { url?: string; error?: string };
+    if (res.ok && json.url) return json.url;
+  } catch (err) {
+    console.warn("Upload via Cloudinary failed, using Data URL fallback:", err);
+  }
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(new Error("Không thể đọc file ảnh"));
+    reader.readAsDataURL(file);
+  });
+};
+
 function SignatureBlock({ signatures, timezone }: { signatures: ReportSignatures; timezone: string }) {
   const items = [["freelancer", signatures.freelancer], ["reviewer", signatures.reviewer]] as const;
   return <section className="report-signature-section" id="report-signatures"><div className="report-section-heading"><span>✓</span><h2>Xác nhận & chữ ký</h2></div><div className="report-signature-grid">{items.map(([party, signature]) => <div className="report-signature-card" key={party}><span className="report-signature-role">{signature.role}</span><div className="report-signature-image">{signature.imageUrl ? <img src={signature.imageUrl} alt={`Chữ ký ${signature.name || signature.role}`} /> : <span>Chưa tải chữ ký</span>}</div><strong>{signature.name || "Chưa cập nhật tên"}</strong>{signature.verified && signature.signedAt && signature.name && signature.imageUrl ? <div className="report-signature-verified"><i>✓</i><span>Đã xác nhận · {formatDateTime(signature.signedAt, timezone)}</span></div> : <small>Chưa xác nhận ký hoàn tất</small>}</div>)}</div></section>;
@@ -222,13 +367,20 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
   const [to, setTo] = useState(viewOnlyReport?.to || today());
   const [title, setTitle] = useState(viewOnlyReport?.title || `Báo cáo SEO tháng ${new Date().getMonth() + 1}/${new Date().getFullYear()}`);
   const [author, setAuthor] = useState(viewOnlyReport?.author || settings.owner);
-  const [sections, setSections] = useState(() => placeAnalyticsAfterGsc(viewOnlyReport?.sections || sectionDefaults));
+  const [sections, setSections] = useState(() => normalizeSections(viewOnlyReport?.sections || sectionDefaults));
   const [summary, setSummary] = useState(viewOnlyReport?.summary || "");
   const [monthlyReview, setMonthlyReview] = useState(viewOnlyReport?.monthlyReview || "");
   const [nextPlan, setNextPlan] = useState(viewOnlyReport?.nextPlan || "");
   const [notes, setNotes] = useState(viewOnlyReport?.notes || "");
   const [signatures, setSignatures] = useState<ReportSignatures>(viewOnlyReport?.signatures || emptySignatures(settings.owner));
   const [uploadingSignature, setUploadingSignature] = useState<"freelancer" | "reviewer" | "">("");
+  const [gscImages, setGscImages] = useState<ReportImageItem[]>(() => normalizeImages(viewOnlyReport?.gscImages));
+  const [analyticsImages, setAnalyticsImages] = useState<ReportImageItem[]>(() => normalizeImages(viewOnlyReport?.analyticsImages));
+  const [uploadingGsc, setUploadingGsc] = useState(false);
+  const [uploadingAnalytics, setUploadingAnalytics] = useState(false);
+  const [gscUrlInput, setGscUrlInput] = useState("");
+  const [analyticsUrlInput, setAnalyticsUrlInput] = useState("");
+  const [activeZoomImage, setActiveZoomImage] = useState<{ url: string; title: string } | null>(null);
   const [editingId, setEditingId] = useState(viewOnlyReport?.id || "");
   const [createdAt, setCreatedAt] = useState(viewOnlyReport?.createdAt || new Date().toISOString());
   const liveSnapshot = useMemo(() => rangeData(data, from, to), [data, from, to]);
@@ -238,6 +390,12 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
   useEffect(() => { if (!summary) setSummary(suggestedSummary(liveSnapshot)); }, []);
   useEffect(() => { if (!monthlyReview) setMonthlyReview(suggestedSummary(liveSnapshot)); }, []);
   useEffect(() => { if (!nextPlan) setNextPlan(suggestedPlan(liveSnapshot)); }, []);
+  useEffect(() => {
+    if (title && (viewOnlyReport || mode === "edit")) {
+      const site = settings?.name || settings?.domain;
+      document.title = site ? `${title} — ${site}` : title;
+    }
+  }, [title, viewOnlyReport, mode, settings]);
 
   const allRankings = snapshot.rankings || [];
   const rankings = gscKeywordRows(allRankings);
@@ -507,9 +665,9 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
       case "overview":
         return Boolean(summary.trim() || clicks > 0 || impressions > 0 || gaSessions > 0 || rankings.length > 0 || grandTotalWorkItems > 0);
       case "gsc":
-        return clicks > 0 || impressions > 0 || allRankings.length > 0;
+        return clicks > 0 || impressions > 0 || allRankings.length > 0 || gscImages.length > 0;
       case "analytics":
-        return gaSessions > 0 || gaUsers > 0 || gaViews > 0 || gaChannelRows.length > 0 || analytics.length > 0;
+        return gaSessions > 0 || gaUsers > 0 || gaViews > 0 || gaChannelRows.length > 0 || analytics.length > 0 || analyticsImages.length > 0;
       case "keywords":
         return topQueries.length > 0;
       case "pages":
@@ -550,6 +708,8 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
       clicks,
       impressions,
       allRankings,
+      gscImages,
+      analyticsImages,
       gaSessions,
       gaUsers,
       gaViews,
@@ -626,15 +786,73 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
     [next[index], next[target]] = [next[target], next[index]];
     return next;
   });
+  const handleUploadGsc = async (files: FileList | null) => {
+    if (!files || !files.length) return;
+    setUploadingGsc(true);
+    try {
+      const newItems: ReportImageItem[] = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        if (!file.type.startsWith("image/")) continue;
+        const url = await uploadFileToCloudinaryOrDataUrl(file);
+        const nameClean = file.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ");
+        newItems.push({ url, caption: nameClean === "image" ? "Biểu đồ Search Console" : nameClean });
+      }
+      setGscImages(prev => [...prev, ...newItems]);
+      notify(`Đã thêm ${newItems.length} ảnh Search Console`);
+    } catch (err) {
+      notify(err instanceof Error ? err.message : "Không tải được ảnh Search Console");
+    } finally {
+      setUploadingGsc(false);
+    }
+  };
+
+  const handleAddGscUrl = () => {
+    const trimmed = gscUrlInput.trim();
+    if (!trimmed) return;
+    setGscImages(prev => [...prev, { url: trimmed, caption: "Biểu đồ Search Console" }]);
+    setGscUrlInput("");
+    notify("Đã thêm ảnh Search Console từ link");
+  };
+
+  const handleUploadAnalytics = async (files: FileList | null) => {
+    if (!files || !files.length) return;
+    setUploadingAnalytics(true);
+    try {
+      const newItems: ReportImageItem[] = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        if (!file.type.startsWith("image/")) continue;
+        const url = await uploadFileToCloudinaryOrDataUrl(file);
+        const nameClean = file.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ");
+        newItems.push({ url, caption: nameClean === "image" ? "Biểu đồ Google Analytics" : nameClean });
+      }
+      setAnalyticsImages(prev => [...prev, ...newItems]);
+      notify(`Đã thêm ${newItems.length} ảnh Google Analytics`);
+    } catch (err) {
+      notify(err instanceof Error ? err.message : "Không tải được ảnh Google Analytics");
+    } finally {
+      setUploadingAnalytics(false);
+    }
+  };
+
+  const handleAddAnalyticsUrl = () => {
+    const trimmed = analyticsUrlInput.trim();
+    if (!trimmed) return;
+    setAnalyticsImages(prev => [...prev, { url: trimmed, caption: "Biểu đồ Google Analytics" }]);
+    setAnalyticsUrlInput("");
+    notify("Đã thêm ảnh Google Analytics từ link");
+  };
+
   const refreshSuggestions = () => { const suggestion = suggestedSummary(liveSnapshot); setSummary(suggestion); setMonthlyReview(suggestion); setNextPlan(suggestedPlan(liveSnapshot)); notify("Đã cập nhật gợi ý từ dữ liệu hiện tại"); };
   const newReport = () => {
     const currentSnapshot = rangeData(data, firstDayOfMonth(), today());
-    setMode("edit"); setEditingId(""); setLoadedSnapshot(null); setFrom(firstDayOfMonth()); setTo(today()); setTitle(`Báo cáo SEO tháng ${new Date().getMonth() + 1}/${new Date().getFullYear()}`); setAuthor(settings.owner); setSections(sectionDefaults); setSummary(suggestedSummary(currentSnapshot)); setMonthlyReview(suggestedSummary(currentSnapshot)); setNextPlan(suggestedPlan(currentSnapshot)); setNotes(""); setSignatures(emptySignatures(settings.owner)); setCreatedAt(new Date().toISOString());
+    setMode("edit"); setEditingId(""); setLoadedSnapshot(null); setFrom(firstDayOfMonth()); setTo(today()); setTitle(`Báo cáo SEO tháng ${new Date().getMonth() + 1}/${new Date().getFullYear()}`); setAuthor(settings.owner); setSections(normalizeSections(sectionDefaults)); setSummary(suggestedSummary(currentSnapshot)); setMonthlyReview(suggestedSummary(currentSnapshot)); setNextPlan(suggestedPlan(currentSnapshot)); setNotes(""); setSignatures(emptySignatures(settings.owner)); setGscImages([]); setAnalyticsImages([]); setCreatedAt(new Date().toISOString());
   };
   const saveReport = async () => {
     const now = new Date().toISOString();
     const existing = savedReports.find(item => item.id === editingId);
-    const report: SavedSeoReport = { id: editingId || uid(), title: title.trim() || "Báo cáo SEO", from, to, author: author.trim() || settings.owner, createdAt: editingId ? createdAt : now, updatedAt: now, sections: placeAnalyticsAfterGsc(sections), summary, monthlyReview, nextPlan, notes, snapshot: liveSnapshot, signatures, shareToken: existing?.shareToken, publishedAt: existing?.shareToken ? now : existing?.publishedAt };
+    const report: SavedSeoReport = { id: editingId || uid(), title: title.trim() || "Báo cáo SEO", from, to, author: author.trim() || settings.owner, createdAt: editingId ? createdAt : now, updatedAt: now, sections: normalizeSections(sections), summary, monthlyReview, nextPlan, notes, snapshot: liveSnapshot, signatures, gscImages, analyticsImages, shareToken: existing?.shareToken, publishedAt: existing?.shareToken ? now : existing?.publishedAt };
     const next = editingId ? savedReports.map(item => item.id === editingId ? report : item) : [report, ...savedReports].slice(0, 24);
     if (report.shareToken) {
       const payload: PublicSeoReportPayload = { report: { ...report, publishedAt: now }, settings };
@@ -644,7 +862,7 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
     onSaveReports(next); setEditingId(report.id); setCreatedAt(report.createdAt); setLoadedSnapshot(report.snapshot); setMode("list"); notify(editingId ? "Đã cập nhật bản báo cáo" : "Đã lưu bản báo cáo mới");
   };
   const loadReport = (report: SavedSeoReport) => {
-    setMode("edit"); setEditingId(report.id); setTitle(report.title); setFrom(report.from); setTo(report.to); setAuthor(report.author); setSections(placeAnalyticsAfterGsc(report.sections)); setSummary(report.summary); setMonthlyReview(report.monthlyReview || report.summary); setNextPlan(report.nextPlan); setNotes(report.notes); setSignatures(report.signatures || emptySignatures(report.author || settings.owner)); setCreatedAt(report.createdAt); setLoadedSnapshot(report.snapshot); notify("Đã mở bản báo cáo để chỉnh sửa");
+    setMode("edit"); setEditingId(report.id); setTitle(report.title); setFrom(report.from); setTo(report.to); setAuthor(report.author); setSections(normalizeSections(report.sections)); setSummary(report.summary); setMonthlyReview(report.monthlyReview || report.summary); setNextPlan(report.nextPlan); setNotes(report.notes); setSignatures(report.signatures || emptySignatures(report.author || settings.owner)); setGscImages(normalizeImages(report.gscImages)); setAnalyticsImages(normalizeImages(report.analyticsImages)); setCreatedAt(report.createdAt); setLoadedSnapshot(report.snapshot); notify("Đã mở bản báo cáo để chỉnh sửa");
   };
   const deleteReport = async (id: string) => {
     if (!window.confirm("Xóa bản báo cáo này?")) return;
@@ -832,8 +1050,48 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
         </div>
       </>
     );
-    if (section.key === "gsc") return wrapper(<div className="report-gsc-strip"><div><span>Clicks</span><b>{formatNumber(clicks)}</b></div><div><span>Impressions</span><b>{formatNumber(impressions)}</b></div><div><span>CTR</span><b>{ctr.toFixed(2)}%</b></div><div><span>Vị trí TB</span><b>{avgPosition ? avgPosition.toFixed(1) : "—"}</b></div></div>);
+    if (section.key === "gsc") {
+      const gscImgs = normalizeImages(gscImages);
+      return wrapper(
+        <>
+          <div className="report-gsc-strip">
+            <div><span>Clicks</span><b>{formatNumber(clicks)}</b></div>
+            <div><span>Impressions</span><b>{formatNumber(impressions)}</b></div>
+            <div><span>CTR</span><b>{ctr.toFixed(2)}%</b></div>
+            <div><span>Vị trí TB</span><b>{avgPosition ? avgPosition.toFixed(1) : "—"}</b></div>
+          </div>
+          {gscImgs.length > 0 && (
+            <div className="report-metric-gallery">
+              <div className="report-metric-gallery-header">
+                <h4><span>📊</span> Hình ảnh biểu đồ Google Search Console</h4>
+                <span className="report-metric-gallery-badge">{gscImgs.length} hình ảnh</span>
+              </div>
+              <div className={`report-metric-image-grid ${gscImgs.length === 1 ? "single" : ""}`}>
+                {gscImgs.map((img, idx) => (
+                  <figure
+                    key={idx}
+                    className="report-metric-figure"
+                    onClick={() => setActiveZoomImage({ url: img.url, title: img.caption || `Biểu đồ Search Console #${idx + 1}` })}
+                  >
+                    <div className="report-metric-img-wrap">
+                      <img src={img.url} alt={img.caption || `Biểu đồ Search Console #${idx + 1}`} loading="lazy" />
+                      <span className="report-img-zoom-btn">🔍 Phóng to</span>
+                    </div>
+                    {img.caption && (
+                      <figcaption className="report-metric-caption">
+                        {img.caption}
+                      </figcaption>
+                    )}
+                  </figure>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      );
+    }
     if (section.key === "analytics") {
+      const gaImgs = normalizeImages(analyticsImages);
       const channelTotal = gaChannelRows.reduce((sum, r) => sum + asNumber(r.sessions), 0) || 1;
       const channelRowsFormatted = gaChannelRows.map(row => ({
         ...row,
@@ -851,6 +1109,33 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
             <div><span>Engagement rate</span><b>{gaEngagementRate.toFixed(2)}%</b></div>
             <div><span>Key events / Conversions</span><b>{formatNumber(gaConversions)}</b></div>
           </div>
+          {gaImgs.length > 0 && (
+            <div className="report-metric-gallery">
+              <div className="report-metric-gallery-header">
+                <h4><span>📈</span> Hình ảnh biểu đồ Google Analytics 4</h4>
+                <span className="report-metric-gallery-badge">{gaImgs.length} hình ảnh</span>
+              </div>
+              <div className={`report-metric-image-grid ${gaImgs.length === 1 ? "single" : ""}`}>
+                {gaImgs.map((img, idx) => (
+                  <figure
+                    key={idx}
+                    className="report-metric-figure"
+                    onClick={() => setActiveZoomImage({ url: img.url, title: img.caption || `Biểu đồ Google Analytics #${idx + 1}` })}
+                  >
+                    <div className="report-metric-img-wrap">
+                      <img src={img.url} alt={img.caption || `Biểu đồ Google Analytics #${idx + 1}`} loading="lazy" />
+                      <span className="report-img-zoom-btn">🔍 Phóng to</span>
+                    </div>
+                    {img.caption && (
+                      <figcaption className="report-metric-caption">
+                        {img.caption}
+                      </figcaption>
+                    )}
+                  </figure>
+                ))}
+              </div>
+            </div>
+          )}
           {channelRowsFormatted.length > 0 && (
             <div style={{ marginTop: "18px" }}>
               <h4 style={{ margin: "0 0 10px", fontSize: "14px", color: "var(--report-navy)" }}>Phân tích traffic theo kênh (Channel Group)</h4>
@@ -929,9 +1214,9 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
     if (section.key === "indexing") return wrapper(<Table rows={snapshot.indexing || []} columns={[{ key: "url", label: "URL" }, { key: "type", label: "Loại" }, { key: "status", label: "Trạng thái" }, { key: "checked", label: "Kiểm tra" }, { key: "reason", label: "Lý do" }, { key: "action", label: "Hành động" }]} baseDomain={settings.domain} />);
     if (section.key === "backlinks") return wrapper(<Table rows={snapshot.backlinks || []} columns={[{ key: "domain", label: "Domain" }, { key: "targetUrl", label: "URL đích" }, { key: "anchor", label: "Anchor" }, { key: "owner", label: "Phụ trách" }, { key: "placed", label: "Ngày đặt" }, { key: "status", label: "Trạng thái" }]} baseDomain={settings.domain} />);
     if (section.key === "expenses") return wrapper(<><Table rows={snapshot.expenses || []} columns={[{ key: "date", label: "Ngày" }, { key: "category", label: "Hạng mục" }, { key: "description", label: "Nội dung" }, { key: "vendor", label: "Nhà cung cấp" }, { key: "amount", label: "Số tiền" }, { key: "status", label: "Trạng thái" }]} baseDomain={settings.domain} /><p className="report-total">Tổng chi phí: <b>{formatMoney((snapshot.expenses || []).reduce((sum, row) => sum + asNumber(row.amount), 0))}</b></p></>);
-    if (section.key === "monthlyReview") return wrapper(<div className="report-narrative">{monthlyReview.split("\n").map((line, index) => <p key={index}>{line || <br />}</p>)}</div>);
-    if (section.key === "nextPlan") return wrapper(<div className="report-narrative">{nextPlan.split("\n").map((line, index) => <p key={index}>{line || <br />}</p>)}</div>);
-    return wrapper(<div className="report-narrative">{notes ? notes.split("\n").map((line, index) => <p key={index}>{line || <br />}</p>) : <p>Không có ghi chú bổ sung.</p>}</div>);
+    if (section.key === "monthlyReview") return wrapper(<ReportNarrative text={monthlyReview} placeholder="Chưa có nhận xét tháng này." />);
+    if (section.key === "nextPlan") return wrapper(<ReportNarrative text={nextPlan} placeholder="Chưa có kế hoạch tháng tới." />);
+    return wrapper(<ReportNarrative text={notes} placeholder="Không có ghi chú bổ sung." />);
   };
 
   const floatingToc = visibleSections.length > 1 ? (
@@ -1010,6 +1295,20 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
     </aside>
   ) : null;
 
+  const lightboxModal = activeZoomImage ? (
+    <div className="report-lightbox-backdrop" onClick={() => setActiveZoomImage(null)}>
+      <div className="report-lightbox-content" onClick={e => e.stopPropagation()}>
+        <div className="report-lightbox-header">
+          <b>{activeZoomImage.title}</b>
+          <button type="button" onClick={() => setActiveZoomImage(null)}>✕</button>
+        </div>
+        <div className="report-lightbox-body">
+          <img src={activeZoomImage.url} alt={activeZoomImage.title} />
+        </div>
+      </div>
+    </div>
+  ) : null;
+
   const reportDocument = <article className="report-document">
       <header className="report-cover"><div className="report-cover-mark">SEO</div><div><p>BÁO CÁO HIỆU SUẤT ĐỊNH KỲ</p><h1>{title}</h1><h2>{settings.name}</h2><a href={settings.domain.startsWith("http") ? settings.domain : `https://${settings.domain}`} target="_blank" rel="noopener noreferrer">{settings.domain}</a></div><dl><div><dt>Thời gian báo cáo</dt><dd>{formatDate(from)} – {formatDate(to)}</dd></div><div><dt>Người lập</dt><dd>{author || settings.owner}</dd></div><div><dt>Email</dt><dd>{settings.email || "—"}</dd></div><div><dt>Ngày tạo</dt><dd>{formatDateTime(createdAt, settings.timezone)}</dd></div><div><dt>Cập nhật / xuất bản</dt><dd>{formatDateTime(generatedAt, settings.timezone)}</dd></div></dl></header>
       {sections.map(renderSection)}
@@ -1017,7 +1316,7 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
       <footer className="report-footer"><b>{settings.name}</b><span>{settings.domain} · Báo cáo được tạo lúc {formatDateTime(generatedAt, settings.timezone)}</span></footer>
     </article>;
 
-  if (viewOnlyReport) return <div className="report-builder public-report-document">{floatingToc}{reportDocument}</div>;
+  if (viewOnlyReport) return <div className="report-builder public-report-document">{floatingToc}{reportDocument}{lightboxModal}</div>;
 
   if (mode === "list") return <div className="report-builder">
     <section className="page-heading"><div><p className="eyebrow">SEO REPORT LIBRARY</p><h2>Báo cáo SEO</h2><p className="muted">Quản lý các báo cáo đã tạo, mở trang xem hoặc sao chép đường dẫn gửi khách hàng.</p></div><button className="primary" onClick={newReport}>＋ Tạo báo cáo mới</button></section>
@@ -1030,11 +1329,147 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
     <section className="report-composer panel print-hide">
       <div className="report-fields"><label className="wide"><span>Tên báo cáo</span><input value={title} onChange={event => setTitle(event.target.value)} /></label><label><span>Từ ngày</span><input type="date" value={from} onChange={event => { setFrom(event.target.value); setLoadedSnapshot(null); }} /></label><label><span>Đến ngày</span><input type="date" value={to} onChange={event => { setTo(event.target.value); setLoadedSnapshot(null); }} /></label><label><span>Người lập báo cáo</span><input value={author} onChange={event => setAuthor(event.target.value)} /></label></div>
       <div className="report-editor-grid"><div><div className="report-editor-title"><h3>Nội dung báo cáo</h3><small>Bật/tắt, đổi tên và sắp xếp từng mục</small></div><div className="report-section-list">{sections.map((section, index) => <div className={section.enabled ? "enabled" : ""} key={section.key}><input aria-label={`Hiển thị ${section.title}`} type="checkbox" checked={section.enabled} onChange={event => updateSection(index, { enabled: event.target.checked })} /><input value={section.title} onChange={event => updateSection(index, { title: event.target.value })} /><button disabled={index === 0} onClick={() => moveSection(index, -1)} aria-label="Đưa mục lên">↑</button><button disabled={index === sections.length - 1} onClick={() => moveSection(index, 1)} aria-label="Đưa mục xuống">↓</button></div>)}</div></div><div className="report-copy-editors"><label><span>Nhận xét tổng quan</span><textarea value={summary} onChange={event => setSummary(event.target.value)} /></label><label><span>Nhận xét tháng này</span><textarea value={monthlyReview} onChange={event => setMonthlyReview(event.target.value)} placeholder="Đánh giá kết quả, điểm nổi bật và vấn đề trong tháng…" /></label><label><span>Kế hoạch tháng tới</span><textarea value={nextPlan} onChange={event => setNextPlan(event.target.value)} /></label><label><span>Ghi chú / đề xuất</span><textarea value={notes} onChange={event => setNotes(event.target.value)} placeholder="Đề xuất ngân sách, nội dung cần khách hàng duyệt, rủi ro…" /></label></div></div>
+
+      <section className="report-image-uploader-section">
+        <div className="report-editor-title">
+          <div>
+            <h3>Hình ảnh biểu đồ trực quan (Google Search Console & Google Analytics)</h3>
+            <small>Tải ảnh chụp màn hình biểu đồ từ GSC và GA4 để hiển thị trực quan các chỉ số trong báo cáo</small>
+          </div>
+        </div>
+        <div className="report-image-uploader-grid">
+          <div className="report-image-uploader-card">
+            <div className="report-image-uploader-head">
+              <b><span>📊</span> Google Search Console ({gscImages.length} ảnh)</b>
+              <span>Biểu đồ Clicks, Impressions, CTR</span>
+            </div>
+            <div className="report-image-uploader-actions">
+              <label className="report-upload-btn">
+                <span>{uploadingGsc ? "⏳ Đang tải ảnh…" : "📁 Tải ảnh từ máy"}</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  hidden
+                  disabled={uploadingGsc}
+                  onChange={e => { void handleUploadGsc(e.target.files); e.target.value = ""; }}
+                />
+              </label>
+              <div className="report-url-input-row">
+                <input
+                  type="url"
+                  placeholder="Hoặc dán URL ảnh GSC…"
+                  value={gscUrlInput}
+                  onChange={e => setGscUrlInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleAddGscUrl(); } }}
+                />
+                <button type="button" onClick={handleAddGscUrl}>＋ Thêm</button>
+              </div>
+            </div>
+            {gscImages.length > 0 && (
+              <div className="report-image-item-list">
+                {gscImages.map((img, idx) => (
+                  <div key={idx} className="report-image-item-row">
+                    <div
+                      className="report-image-item-thumb"
+                      title="Xem phóng to"
+                      onClick={() => setActiveZoomImage({ url: img.url, title: img.caption || "Ảnh Search Console" })}
+                    >
+                      <img src={img.url} alt="Thumbnail" />
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="Chú thích ảnh…"
+                      value={img.caption || ""}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setGscImages(prev => prev.map((item, i) => i === idx ? { ...item, caption: val } : item));
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="report-image-item-del"
+                      title="Xóa ảnh"
+                      onClick={() => setGscImages(prev => prev.filter((_, i) => i !== idx))}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="report-image-uploader-card">
+            <div className="report-image-uploader-head">
+              <b><span>📈</span> Google Analytics 4 ({analyticsImages.length} ảnh)</b>
+              <span>Biểu đồ Traffic, Users, Kênh chuyển đổi</span>
+            </div>
+            <div className="report-image-uploader-actions">
+              <label className="report-upload-btn">
+                <span>{uploadingAnalytics ? "⏳ Đang tải ảnh…" : "📁 Tải ảnh từ máy"}</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  hidden
+                  disabled={uploadingAnalytics}
+                  onChange={e => { void handleUploadAnalytics(e.target.files); e.target.value = ""; }}
+                />
+              </label>
+              <div className="report-url-input-row">
+                <input
+                  type="url"
+                  placeholder="Hoặc dán URL ảnh GA4…"
+                  value={analyticsUrlInput}
+                  onChange={e => setAnalyticsUrlInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleAddAnalyticsUrl(); } }}
+                />
+                <button type="button" onClick={handleAddAnalyticsUrl}>＋ Thêm</button>
+              </div>
+            </div>
+            {analyticsImages.length > 0 && (
+              <div className="report-image-item-list">
+                {analyticsImages.map((img, idx) => (
+                  <div key={idx} className="report-image-item-row">
+                    <div
+                      className="report-image-item-thumb"
+                      title="Xem phóng to"
+                      onClick={() => setActiveZoomImage({ url: img.url, title: img.caption || "Ảnh Google Analytics" })}
+                    >
+                      <img src={img.url} alt="Thumbnail" />
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="Chú thích ảnh…"
+                      value={img.caption || ""}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setAnalyticsImages(prev => prev.map((item, i) => i === idx ? { ...item, caption: val } : item));
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="report-image-item-del"
+                      title="Xóa ảnh"
+                      onClick={() => setAnalyticsImages(prev => prev.filter((_, i) => i !== idx))}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+
       <section className="report-signature-editor"><div className="report-editor-title"><div><h3>Chữ ký xác nhận</h3><small>Tải ảnh chữ ký, nhập tên và đánh dấu hoàn tất cho từng bên</small></div></div><div className="report-signature-editor-grid">{(["freelancer", "reviewer"] as const).map(party => { const signature = signatures[party]; return <div className="report-signature-editor-card" key={party}><div className="report-signature-editor-head"><b>{signature.role}</b>{signature.verified && signature.name && signature.imageUrl && <span>✓ Đã xác nhận</span>}</div><label><span>Họ và tên</span><input value={signature.name} onChange={event => updateSignature(party, { name: event.target.value, verified: event.target.value ? signature.verified : false })} placeholder={party === "freelancer" ? "Tên Freelancer" : "Tên người kiểm duyệt"} /></label><label><span>Vai trò</span><input value={signature.role} onChange={event => updateSignature(party, { role: event.target.value })} /></label><div className="signature-upload-row"><div className="signature-upload-preview">{signature.imageUrl ? <img src={signature.imageUrl} alt={`Chữ ký ${signature.name || signature.role}`} /> : <span>Chưa có ảnh chữ ký</span>}</div><label className="secondary signature-upload-button">{uploadingSignature === party ? "Đang tải…" : "Tải ảnh chữ ký"}<input hidden disabled={Boolean(uploadingSignature)} type="file" accept="image/*" onChange={event => { void uploadSignature(party, event.target.files?.[0]); event.target.value = ""; }} /></label></div><label><span>Hoặc dán link ảnh chữ ký</span><input value={signature.imageUrl} onChange={event => updateSignature(party, { imageUrl: event.target.value, verified: event.target.value ? signature.verified : false })} placeholder="https://..." /></label><div className="signature-confirm-row"><label title={!signature.name || !signature.imageUrl ? "Cần nhập tên và tải ảnh chữ ký trước" : undefined}><input type="checkbox" disabled={!signature.name || !signature.imageUrl} checked={signature.verified} onChange={event => updateSignature(party, { verified: event.target.checked, signedAt: event.target.checked && !signature.signedAt ? today() : signature.signedAt })} /> Xác nhận đã ký hoàn tất</label><input aria-label={`Ngày ký của ${signature.role}`} type="date" value={signature.signedAt.slice(0, 10)} onChange={event => updateSignature(party, { signedAt: event.target.value, verified: Boolean(event.target.value && signature.name && signature.imageUrl) })} /></div></div>; })}</div></section>
       <div className="report-form-actions"><button className="secondary" onClick={refreshSuggestions}>Tạo lại gợi ý</button><button className="primary" onClick={() => void saveReport()}>{editingId ? "Cập nhật báo cáo" : "Lưu báo cáo"}</button></div>
     </section>
     <div className="report-preview-label print-hide"><span>XEM TRƯỚC</span><p>Bản xem trước chỉ hiển thị trong lúc tạo. Sau khi lưu, dùng nút “Xem” ở danh sách để mở trang gửi khách.</p></div>
     {floatingToc}
     {reportDocument}
+    {lightboxModal}
   </div>;
 }

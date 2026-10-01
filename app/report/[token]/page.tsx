@@ -29,6 +29,13 @@ export default function PublicReportPage() {
     return () => { cancelled = true; };
   }, [token]);
 
+  useEffect(() => {
+    if (payload?.report?.title) {
+      const site = payload.settings?.name || payload.settings?.domain;
+      document.title = site ? `${payload.report.title} — ${site}` : payload.report.title;
+    }
+  }, [payload]);
+
   if (loading) return <main className="public-report-state"><div className="loading-card"><span className="loading-mark">SEO</span><b>Đang mở báo cáo…</b></div></main>;
   if (!payload) return <main className="public-report-state"><div className="public-report-error"><span>!</span><h1>Không tìm thấy báo cáo</h1><p>Đường dẫn có thể chưa được xuất bản, đã hết hiệu lực hoặc nhập chưa chính xác.</p></div></main>;
 
