@@ -69,6 +69,16 @@ const emptySignatures = (owner: string): ReportSignatures => ({
 });
 const asText = (value: unknown) => String(value ?? "");
 const asNumber = (value: unknown) => Number(value || 0);
+const gscKeywordRows = (rows: Row[]) => rows.filter(row => row.gscSummary !== true);
+const gscStats = (rows: Row[]) => {
+  const summaryRows = rows.filter(row => row.gscSummary === true);
+  const performance = summaryRows.length ? summaryRows : gscKeywordRows(rows);
+  const clicks = performance.reduce((sum, row) => sum + asNumber(row.clicks), 0);
+  const impressions = performance.reduce((sum, row) => sum + asNumber(row.impressions), 0);
+  const positionWeight = performance.reduce((sum, row) => sum + asNumber(row.position) * Math.max(1, asNumber(row.impressions)), 0);
+  const totalWeight = performance.reduce((sum, row) => sum + Math.max(1, asNumber(row.impressions)), 0);
+  return { clicks, impressions, ctr: impressions ? clicks / impressions * 100 : 0, position: totalWeight ? positionWeight / totalWeight : 0 };
+};
 const formatNumber = (value: number) => new Intl.NumberFormat("vi-VN").format(value);
 const formatMoney = (value: number) => new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(value);
 const formatDate = (value: string) => {
@@ -97,9 +107,7 @@ function rangeData(data: ReportData, from: string, to: string): ReportData {
 }
 
 function suggestedSummary(snapshot: ReportData) {
-  const rankings = snapshot.rankings || [];
-  const clicks = rankings.reduce((sum, row) => sum + asNumber(row.clicks), 0);
-  const impressions = rankings.reduce((sum, row) => sum + asNumber(row.impressions), 0);
+  const { clicks, impressions } = gscStats(snapshot.rankings || []);
   const sessions = (snapshot.analytics || []).reduce((sum, row) => sum + asNumber(row.sessions), 0);
   const done = (snapshot.tasks || []).filter(row => asText(row.status) === "Done").length;
   const published = (snapshot.content || []).filter(row => asText(row.status) === "Published").length;
@@ -165,11 +173,9 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
   useEffect(() => { if (!monthlyReview) setMonthlyReview(suggestedSummary(liveSnapshot)); }, []);
   useEffect(() => { if (!nextPlan) setNextPlan(suggestedPlan(liveSnapshot)); }, []);
 
-  const rankings = snapshot.rankings || [];
-  const clicks = rankings.reduce((sum, row) => sum + asNumber(row.clicks), 0);
-  const impressions = rankings.reduce((sum, row) => sum + asNumber(row.impressions), 0);
-  const ctr = impressions ? clicks / impressions * 100 : 0;
-  const avgPosition = rankings.length ? rankings.reduce((sum, row) => sum + asNumber(row.position), 0) / rankings.length : 0;
+  const allRankings = snapshot.rankings || [];
+  const rankings = gscKeywordRows(allRankings);
+  const { clicks, impressions, ctr, position: avgPosition } = gscStats(allRankings);
   const analytics = snapshot.analytics || [];
   const gaSessions = analytics.reduce((sum, row) => sum + asNumber(row.sessions), 0);
   const gaUsers = analytics.reduce((sum, row) => sum + asNumber(row.users), 0);

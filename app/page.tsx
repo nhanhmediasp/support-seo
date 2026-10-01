@@ -1,6 +1,7 @@
 "use client";
 
 import { ChangeEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import JSZip from "jszip";
 import { localModeAllowed, Project, supabase, supabaseConfigured } from "../lib/supabase";
 import ReportBuilder, { SavedSeoReport } from "./report-builder";
 
@@ -58,7 +59,84 @@ const normalizeImportDate = (value: string, fallback: string) => {
   const raw = String(value || "").trim();
   if (/^\d{8}$/.test(raw)) return `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`;
   if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const localDate = raw.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+  if (localDate) return `${localDate[3]}-${localDate[2].padStart(2, "0")}-${localDate[1].padStart(2, "0")}`;
   return fallback;
+};
+const gscKeywordRows = (rows: Row[]) => rows.filter(row => row.gscSummary !== true);
+const gscPerformanceRows = (rows: Row[]) => {
+  const summaryRows = rows.filter(row => row.gscSummary === true);
+  return summaryRows.length ? summaryRows : gscKeywordRows(rows);
+};
+const gscStats = (rows: Row[]) => {
+  const performance = gscPerformanceRows(rows);
+  const clicks = performance.reduce((sum, row) => sum + Number(row.clicks || 0), 0);
+  const impressions = performance.reduce((sum, row) => sum + Number(row.impressions || 0), 0);
+  const positionWeight = performance.reduce((sum, row) => sum + Number(row.position || 0) * Math.max(1, Number(row.impressions || 0)), 0);
+  const totalWeight = performance.reduce((sum, row) => sum + Math.max(1, Number(row.impressions || 0)), 0);
+  return { clicks, impressions, ctr: impressions ? clicks / impressions * 100 : 0, position: totalWeight ? positionWeight / totalWeight : 0 };
+};
+const parseGscFile = async (file: File, importDate: string): Promise<Row[]> => {
+  const lines = await decodeTabularFile(file);
+  if (!lines.length) return [];
+  const delimiter = detectDelimiter(lines);
+  const keywordAliases = ["Truy vấn phổ biến nhất", "Truy vấn", "Query", "Top queries", "Search query", "Cụm từ tìm kiếm", "Từ khóa", "Từ khoá", "Keyword", "Search term", "Search terms"];
+  const clicksAliases = ["Lượt nhấp", "Số lượt nhấp", "Clicks", "Click"];
+  const impressionsAliases = ["Lượt hiển thị", "Số lượt hiển thị", "Impressions", "Impression"];
+  const hasAlias = (headers: string[], aliases: string[]) => aliases.some(alias => headers.some(header => header === normalizeCsvHeader(alias) || header.includes(normalizeCsvHeader(alias))));
+  const keywordHeaderIndex = lines.slice(0, 40).findIndex(line => {
+    const normalized = parseCsvLine(line, delimiter).map(normalizeCsvHeader);
+    return hasAlias(normalized, keywordAliases) && hasAlias(normalized, clicksAliases) && hasAlias(normalized, impressionsAliases);
+  });
+  const chartHeaderIndex = lines.slice(0, 40).findIndex(line => {
+    const normalized = parseCsvLine(line, delimiter).map(normalizeCsvHeader);
+    return normalized.some(header => ["ngay", "date"].includes(header)) && hasAlias(normalized, clicksAliases) && hasAlias(normalized, impressionsAliases) && !hasAlias(normalized, keywordAliases);
+  });
+  const headerIndex = keywordHeaderIndex >= 0 ? keywordHeaderIndex : chartHeaderIndex;
+  if (headerIndex < 0) return [];
+  const headers = parseCsvLine(lines[headerIndex], delimiter);
+  const dataLines = lines.slice(headerIndex + 1);
+  const headerMap = new Map(headers.map((header, index) => [normalizeCsvHeader(header), index]));
+  const findColumn = (...names: string[]) => {
+    const normalizedNames = names.map(normalizeCsvHeader);
+    const exact = normalizedNames.map(name => headerMap.get(name)).find(index => index !== undefined);
+    if (exact !== undefined) return exact;
+    const partial = headers.findIndex(header => normalizedNames.some(name => normalizeCsvHeader(header).includes(name)));
+    return partial >= 0 ? partial : undefined;
+  };
+  const clicksIndex = findColumn(...clicksAliases);
+  const impressionsIndex = findColumn(...impressionsAliases);
+  const ctrIndex = findColumn("CTR", "Tỷ lệ nhấp", "Tỷ lệ nhấp chuột");
+  const positionIndex = findColumn("Vị trí", "Vị trí trung bình", "Position", "Average position", "Avg. position");
+  if (clicksIndex === undefined || impressionsIndex === undefined) return [];
+  if (keywordHeaderIndex < 0) {
+    const dateIndex = findColumn("Ngày", "Date");
+    if (dateIndex === undefined) return [];
+    return dataLines.map(line => {
+      const values = parseCsvLine(line, delimiter);
+      const date = normalizeImportDate(values[dateIndex], importDate);
+      const clicks = csvInteger(values[clicksIndex]);
+      const impressions = csvInteger(values[impressionsIndex]);
+      return normalizeRow("rankings", {
+        id: uid("GSC-TOTAL"), keyword: `Tổng hiệu suất GSC ${date}`, page: "", gscSummary: true,
+        position: positionIndex === undefined ? 0 : csvDecimal(values[positionIndex]), previous: 0, clicks, impressions,
+        ctr: ctrIndex === undefined ? (impressions ? clicks / impressions * 100 : 0) : csvDecimal(values[ctrIndex]), date, source: file.name,
+      });
+    }).filter(row => row.date && (Number(row.clicks) > 0 || Number(row.impressions) > 0));
+  }
+  const keywordIndex = findColumn(...keywordAliases);
+  const pageIndex = findColumn("Trang phổ biến nhất", "Trang", "Page", "Top pages", "Landing page", "Trang đích", "Final URL", "URL");
+  if (keywordIndex === undefined || ctrIndex === undefined || positionIndex === undefined) return [];
+  return dataLines.map(line => {
+    const values = parseCsvLine(line, delimiter);
+    const keyword = String(values[keywordIndex] || "").trim();
+    const position = csvDecimal(values[positionIndex]);
+    return normalizeRow("rankings", {
+      id: uid("KW"), keyword, page: pageIndex === undefined ? "" : values[pageIndex] || "",
+      position, previous: position, clicks: csvInteger(values[clicksIndex]), impressions: csvInteger(values[impressionsIndex]),
+      ctr: csvDecimal(values[ctrIndex]), date: importDate, source: file.name,
+    });
+  }).filter(row => row.keyword && !["total", "tong", "tổng"].includes(String(row.keyword).trim().toLowerCase()));
 };
 const parseStored = <T,>(value: string | null, fallback: T): T => { try { return value ? JSON.parse(value) as T : fallback; } catch { return fallback; } };
 const normalizeDomain = (value: string) => value.trim().toLowerCase().replace(/\/$/, "");
@@ -606,8 +684,8 @@ function Dashboard({ data, settings, setActive, runAutomation }: { data: AppData
   const inProgress = data.tasks.filter(row => !["Done", "Cancelled"].includes(String(row.status))).length;
   const indexed = data.indexing.filter(row => row.status === "Indexed").length;
   const hours = data.worklogs.reduce((sum, row) => sum + Number(row.hours || 0), 0);
-  const clicks = data.rankings.reduce((sum, row) => sum + Number(row.clicks || 0), 0);
-  const impressions = data.rankings.reduce((sum, row) => sum + Number(row.impressions || 0), 0);
+  const rankingKeywords = gscKeywordRows(data.rankings);
+  const searchStats = gscStats(data.rankings);
   const cards = [
     ["Hoàn thành task", `${data.tasks.length ? Math.round(done / data.tasks.length * 100) : 0}%`, `${done}/${data.tasks.length} công việc`, "blue"],
     ["Công việc đang làm", inProgress, `${inProgress} công việc đang mở`, inProgress ? "orange" : "green"],
@@ -617,7 +695,7 @@ function Dashboard({ data, settings, setActive, runAutomation }: { data: AppData
   return <>
     <section className="hero-row"><div><p className="eyebrow">TỔNG QUAN HIỆU SUẤT</p><h2>Chào mừng trở lại, {settings.owner}</h2><p className="muted">Tình trạng SEO hiện tại của <b>{settings.domain}</b>.</p></div><div className="button-row"><button className="secondary" onClick={runAutomation}>⚡ Quét cảnh báo</button><button className="primary" onClick={() => setActive("tasks")}>Mở công việc →</button></div></section>
     <section className="metric-grid">{cards.map(([label, value, note, color]) => <div className="metric-card" key={String(label)}><div className={`metric-icon ${color}`}>◆</div><div className="metric-copy"><span>{label}</span><strong>{value}</strong><small>{note}</small></div></div>)}</section>
-    <section className="dashboard-grid"><div className="panel"><div className="panel-title"><h3>Hiệu suất tìm kiếm</h3><button onClick={() => setActive("rankings")}>Chi tiết →</button></div><div className="kpi-strip"><div><span>Organic clicks</span><b>{clicks.toLocaleString()}</b></div><div><span>Impressions</span><b>{impressions.toLocaleString()}</b></div><div><span>CTR</span><b>{impressions ? (clicks / impressions * 100).toFixed(2) : 0}%</b></div><div><span>Vị trí TB</span><b>{data.rankings.length ? (data.rankings.reduce((sum, row) => sum + Number(row.position || 0), 0) / data.rankings.length).toFixed(1) : 0}</b></div></div><div className="chart-bars">{data.rankings.slice(0, 8).map(row => <div key={row.id}><span>{row.keyword}</span><i style={{ width: `${Math.max(8, 100 - Number(row.position) * 2)}%` }} /><b>#{row.position}</b></div>)}</div></div><div className="panel"><div className="panel-title"><h3>Trạng thái hệ thống</h3></div><div className="signal-list"><Signal label="Bài đã xuất bản" value={data.content.filter(row => row.status === "Published").length} /><Signal label="Audit High/Critical" value={data.audits.filter(row => ["High", "Critical"].includes(String(row.severity)) && row.status !== "Done").length} danger /><Signal label="Backlink đang live" value={data.backlinks.filter(row => row.status === "Live").length} /><Signal label="Entity đã xác minh" value={data.entities.filter(row => row.verified === "Verified").length} /></div></div></section>
+    <section className="dashboard-grid"><div className="panel"><div className="panel-title"><h3>Hiệu suất tìm kiếm</h3><button onClick={() => setActive("rankings")}>Chi tiết →</button></div><div className="kpi-strip"><div><span>Organic clicks</span><b>{searchStats.clicks.toLocaleString()}</b></div><div><span>Impressions</span><b>{searchStats.impressions.toLocaleString()}</b></div><div><span>CTR</span><b>{searchStats.ctr.toFixed(2)}%</b></div><div><span>Vị trí TB</span><b>{searchStats.position ? searchStats.position.toFixed(1) : "—"}</b></div></div><div className="chart-bars">{rankingKeywords.slice(0, 8).map(row => <div key={row.id}><span>{row.keyword}</span><i style={{ width: `${Math.max(8, 100 - Number(row.position) * 2)}%` }} /><b>#{row.position}</b></div>)}</div></div><div className="panel"><div className="panel-title"><h3>Trạng thái hệ thống</h3></div><div className="signal-list"><Signal label="Bài đã xuất bản" value={data.content.filter(row => row.status === "Published").length} /><Signal label="Audit High/Critical" value={data.audits.filter(row => ["High", "Critical"].includes(String(row.severity)) && row.status !== "Done").length} danger /><Signal label="Backlink đang live" value={data.backlinks.filter(row => row.status === "Live").length} /><Signal label="Entity đã xác minh" value={data.entities.filter(row => row.verified === "Verified").length} /></div></div></section>
     <section className="panel full"><div className="panel-head-pad"><h3>Công việc cần ưu tiên</h3><button onClick={() => setActive("tasks")}>Xem tất cả →</button></div><SimpleTable rows={data.tasks.filter(row => row.status !== "Done").slice(0, 5)} columns={["title", "group", "priority", "startDate", "status"]} /></section>
   </>;
 }
@@ -665,6 +743,7 @@ function ModuleView({ module, rows, setRows, onChange, onRecordSaved, onOpenSour
   };
   const filtered = useMemo(() => {
     const result = rows.filter(row => {
+      if (module === "rankings" && row.gscSummary === true) return false;
       const matchesQuery = Object.values(row).join(" ").toLowerCase().includes(query.toLowerCase());
       const matchesStatus = status === "All" || String(row.status) === status;
       const matchesAuditCategory = module !== "audits" || auditCategory === "All" || String(row.category || "") === auditCategory;
@@ -738,11 +817,34 @@ function ModuleView({ module, rows, setRows, onChange, onRecordSaved, onOpenSour
   const exportCsv = () => { const keys = fields[module].map(field => field.key); const content = "\uFEFF" + [keys.map(csvEscape).join(","), ...rows.map(row => keys.map(key => csvEscape(row[key])).join(","))].join("\n"); downloadFile(`${module}-${today()}.csv`, content, "text/csv;charset=utf-8"); };
   const importCsv = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]; if (!file) return;
-    const lines = await decodeTabularFile(file);
+    let gscZipRows: Row[] | null = null;
+    if (module === "rankings" && file.name.toLowerCase().endsWith(".zip")) {
+      if (file.size > 20 * 1024 * 1024) { setGscStatus("File ZIP vượt quá giới hạn 20 MB."); event.target.value = ""; return; }
+      try {
+        const archive = await JSZip.loadAsync(file);
+        const csvEntries = Object.values(archive.files).filter(entry => !entry.dir && entry.name.toLowerCase().endsWith(".csv") && !entry.name.startsWith("__MACOSX/"));
+        let extractedBytes = 0;
+        const parsedGroups: Row[][] = [];
+        for (const entry of csvEntries) {
+          const content = await entry.async("uint8array");
+          extractedBytes += content.byteLength;
+          if (extractedBytes > 50 * 1024 * 1024) throw new Error("Dữ liệu giải nén vượt quá giới hạn 50 MB");
+          parsedGroups.push(await parseGscFile(new File([content], entry.name, { type: "text/csv" }), importDate));
+        }
+        const parsedRows = parsedGroups.flat();
+        const summaryEndDate = parsedRows.filter(row => row.gscSummary === true).map(row => String(row.date || "")).sort().at(-1);
+        gscZipRows = summaryEndDate ? parsedRows.map(row => row.gscSummary === true ? row : { ...row, date: summaryEndDate }) : parsedRows;
+      } catch (error) {
+        setGscStatus(error instanceof Error ? `Không đọc được ZIP: ${error.message}` : "Không đọc được file ZIP GSC.");
+        event.target.value = "";
+        return;
+      }
+    }
+    const lines = gscZipRows ? [] : await decodeTabularFile(file);
     const delimiter = detectDelimiter(lines);
     let headers = parseCsvLine(lines[0], delimiter);
     let dataLines = lines.slice(1);
-    const imported = module === "rankings" ? (() => {
+    const imported = module === "rankings" ? (gscZipRows || (() => {
       const keywordAliases = ["Truy vấn phổ biến nhất", "Truy vấn", "Query", "Top queries", "Search query", "Cụm từ tìm kiếm", "Từ khóa", "Từ khoá", "Keyword", "Search term", "Search terms"];
       const clicksAliases = ["Lượt nhấp", "Số lượt nhấp", "Clicks", "Click"];
       const impressionsAliases = ["Lượt hiển thị", "Số lượt hiển thị", "Impressions", "Impression"];
@@ -752,9 +854,18 @@ function ModuleView({ module, rows, setRows, onChange, onRecordSaved, onOpenSour
           && clicksAliases.some(alias => normalized.some(header => header === normalizeCsvHeader(alias) || header.includes(normalizeCsvHeader(alias))))
           && impressionsAliases.some(alias => normalized.some(header => header === normalizeCsvHeader(alias) || header.includes(normalizeCsvHeader(alias))));
       });
-      if (headerRowIndex < 0) return null;
-      headers = parseCsvLine(lines[headerRowIndex], delimiter);
-      dataLines = lines.slice(headerRowIndex + 1);
+      const chartHeaderIndex = lines.slice(0, 40).findIndex(line => {
+        const normalized = parseCsvLine(line, delimiter).map(normalizeCsvHeader);
+        const hasDate = normalized.some(header => ["ngay", "date"].includes(header));
+        const hasClicks = clicksAliases.some(alias => normalized.some(header => header === normalizeCsvHeader(alias) || header.includes(normalizeCsvHeader(alias))));
+        const hasImpressions = impressionsAliases.some(alias => normalized.some(header => header === normalizeCsvHeader(alias) || header.includes(normalizeCsvHeader(alias))));
+        const hasKeyword = keywordAliases.some(alias => normalized.some(header => header === normalizeCsvHeader(alias) || header.includes(normalizeCsvHeader(alias))));
+        return hasDate && hasClicks && hasImpressions && !hasKeyword;
+      });
+      const selectedHeaderIndex = headerRowIndex >= 0 ? headerRowIndex : chartHeaderIndex;
+      if (selectedHeaderIndex < 0) return null;
+      headers = parseCsvLine(lines[selectedHeaderIndex], delimiter);
+      dataLines = lines.slice(selectedHeaderIndex + 1);
       const headerMap = new Map(headers.map((header, index) => [normalizeCsvHeader(header), index]));
       const findColumn = (...names: string[]) => {
         const normalizedNames = names.map(normalizeCsvHeader);
@@ -769,6 +880,21 @@ function ModuleView({ module, rows, setRows, onChange, onRecordSaved, onOpenSour
       const impressionsIndex = findColumn(...impressionsAliases);
       const ctrIndex = findColumn("CTR", "Tỷ lệ nhấp", "Tỷ lệ nhấp chuột");
       const positionIndex = findColumn("Vị trí", "Vị trí trung bình", "Position", "Average position", "Avg. position");
+      const dateIndex = findColumn("Ngày", "Date");
+      if (headerRowIndex < 0) {
+        if (dateIndex === undefined || clicksIndex === undefined || impressionsIndex === undefined) return null;
+        return dataLines.map(line => {
+          const values = parseCsvLine(line, delimiter);
+          const date = normalizeImportDate(values[dateIndex], importDate);
+          const clicks = csvInteger(values[clicksIndex]);
+          const impressions = csvInteger(values[impressionsIndex]);
+          return normalizeRow(module, {
+            id: uid("GSC-TOTAL"), keyword: `Tổng hiệu suất GSC ${date}`, page: "", gscSummary: true,
+            position: positionIndex === undefined ? 0 : csvDecimal(values[positionIndex]), previous: 0, clicks, impressions,
+            ctr: ctrIndex === undefined ? (impressions ? clicks / impressions * 100 : 0) : csvDecimal(values[ctrIndex]), date, source: file.name,
+          });
+        }).filter(row => row.date && (Number(row.clicks) > 0 || Number(row.impressions) > 0));
+      }
       if (keywordIndex === undefined || clicksIndex === undefined || impressionsIndex === undefined || ctrIndex === undefined || positionIndex === undefined) return null;
       return dataLines.map(line => {
         const values = parseCsvLine(line, delimiter);
@@ -780,7 +906,7 @@ function ModuleView({ module, rows, setRows, onChange, onRecordSaved, onOpenSour
           ctr: csvDecimal(values[ctrIndex]), date: importDate, source: file.name,
         });
       }).filter(row => row.keyword && !["total", "tong", "tổng"].includes(String(row.keyword).trim().toLowerCase()));
-    })() : module === "analytics" ? (() => {
+    })()) : module === "analytics" ? (() => {
       const isOverviewReport = lines.some(line => normalizeCsvHeader(line).includes("tong quan nhanh ve bao cao"));
       const fileEndMatch = lines.map(line => line.match(/^#\s*Ngày kết thúc:\s*(\d{8})/i)).find(Boolean);
       const reportDate = normalizeImportDate(fileEndMatch?.[1] || "", importDate);
@@ -863,7 +989,11 @@ function ModuleView({ module, rows, setRows, onChange, onRecordSaved, onOpenSour
       setRows([...imported, ...preserved]);
     } else setRows([...imported, ...rows]);
     onChange(module === "rankings" ? "Import GSC CSV" : module === "analytics" ? "Import GA4 CSV" : "Import CSV", meta.title, `${imported.length} bản ghi`);
-    if (module === "rankings" || module === "analytics") setGscStatus(`Đã nhập ${imported.length} dòng từ ${file.name}`);
+    if (module === "rankings" || module === "analytics") {
+      const keywordCount = imported.filter(row => row.gscSummary !== true).length;
+      const summaryCount = imported.filter(row => row.gscSummary === true).length;
+      setGscStatus(module === "rankings" && summaryCount ? `Đã nhập ${keywordCount} từ khóa + ${summaryCount} ngày tổng hiệu suất từ ${file.name}` : `Đã nhập ${imported.length} dòng từ ${file.name}`);
+    }
     event.target.value = "";
   };
   const syncSearchConsole = async () => {
@@ -881,8 +1011,8 @@ function ModuleView({ module, rows, setRows, onChange, onRecordSaved, onOpenSour
   return <>
     <section className="page-heading"><div><p className="eyebrow">{meta.eyebrow}</p><h2>{meta.title}</h2><p className="muted">{meta.description}</p>{(module === "rankings" || module === "analytics") && gscStatus && <p className={gscStatus.startsWith("Không") ? "sync-status error" : "sync-status"}>{gscStatus}</p>}</div><div className="button-row">{module === "rankings" && <><button className="secondary" onClick={() => { window.location.href = "/api/search-console/auth?returnTo=/rankings"; }}>Kết nối GSC</button><button className="secondary" onClick={syncSearchConsole}>↻ Đồng bộ GSC</button></>}{(module === "rankings" || module === "analytics") && <button className="danger-button" disabled={!rows.length} onClick={() => setClearing(true)}>Xóa sạch dữ liệu</button>}<button className="primary" onClick={() => { setEditing(null); setOpen(true); }}>＋ Thêm bản ghi</button></div></section>
     {dateKeys.length > 0 && <DateFilterBar preset={datePreset} from={dateFrom} to={dateTo} onPreset={applyDatePreset} onFrom={value => { setDatePreset("custom"); setDateFrom(value); }} onTo={value => { setDatePreset("custom"); setDateTo(value); }} />}
-    <div className="toolbar"><div className="toolbar-left"><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Tìm kiếm dữ liệu…" />{statuses.length > 0 && <select value={status} onChange={event => setStatus(event.target.value)}><option>All</option>{statuses.map(item => <option key={item}>{item}</option>)}</select>}{module === "audits" && auditCategories.length > 0 && <select aria-label="Lọc theo nhóm lỗi" value={auditCategory} onChange={event => setAuditCategory(event.target.value)}><option value="All">Tất cả nhóm lỗi</option>{auditCategories.map(item => <option key={item}>{item}</option>)}</select>}{module === "worklogs" && workGroups.length > 0 && <select value={workGroup} onChange={event => setWorkGroup(event.target.value)}><option value="All">Tất cả nhóm công việc</option>{workGroups.map(item => <option key={item}>{item}</option>)}</select>}{module === "rankings" && <><select value={rankBand} onChange={event => setRankBand(event.target.value)}><option value="All">Tất cả thứ hạng</option><option value="top3">Top 3</option><option value="top10">Top 10</option><option value="top20">Top 20</option><option value="21-50">Top 21–50</option><option value="51-100">Top 51–100</option><option value="100+">Ngoài Top 100</option><option value="unknown">Chưa có thứ hạng</option></select><select value={rankSort} onChange={event => setRankSort(event.target.value)}><option value="position">Sắp xếp: Vị trí</option><option value="keyword">Sắp xếp: Keyword</option><option value="clicks">Sắp xếp: Clicks</option><option value="impressions">Sắp xếp: Impressions</option><option value="ctr">Sắp xếp: CTR</option></select><button className="secondary sort-direction" onClick={() => setRankDirection(current => current === "asc" ? "desc" : "asc")}>{rankDirection === "asc" ? "Tăng dần ↑" : "Giảm dần ↓"}</button></>}</div><div className="button-row">{(module === "rankings" || module === "analytics") && <label className="import-date"><span>Ngày áp dụng</span><input aria-label="Ngày áp dụng dữ liệu nhập" type="date" value={importDate} onChange={event => setImportDate(event.target.value)} /></label>}<input ref={fileRef} hidden type="file" accept=".csv,.tsv,text/csv,text/tab-separated-values" onChange={importCsv} /><button className="secondary" onClick={() => fileRef.current?.click()}>{module === "rankings" ? "Nhập CSV GSC" : module === "analytics" ? "Nhập CSV GA4" : "Nhập CSV"}</button><button className="secondary" onClick={exportCsv}>Xuất CSV</button></div></div>
-    {module === "rankings" && <p className="import-help">Hỗ trợ file CSV/TSV tiếng Việt hoặc tiếng Anh có các cột: Cụm từ tìm kiếm/Truy vấn, Số lượt nhấp, Số lượt hiển thị, CTR và Vị trí trung bình. Dữ liệu cũ ở ngày khác sẽ được giữ nguyên.</p>}
+    <div className="toolbar"><div className="toolbar-left"><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Tìm kiếm dữ liệu…" />{statuses.length > 0 && <select value={status} onChange={event => setStatus(event.target.value)}><option>All</option>{statuses.map(item => <option key={item}>{item}</option>)}</select>}{module === "audits" && auditCategories.length > 0 && <select aria-label="Lọc theo nhóm lỗi" value={auditCategory} onChange={event => setAuditCategory(event.target.value)}><option value="All">Tất cả nhóm lỗi</option>{auditCategories.map(item => <option key={item}>{item}</option>)}</select>}{module === "worklogs" && workGroups.length > 0 && <select value={workGroup} onChange={event => setWorkGroup(event.target.value)}><option value="All">Tất cả nhóm công việc</option>{workGroups.map(item => <option key={item}>{item}</option>)}</select>}{module === "rankings" && <><select value={rankBand} onChange={event => setRankBand(event.target.value)}><option value="All">Tất cả thứ hạng</option><option value="top3">Top 3</option><option value="top10">Top 10</option><option value="top20">Top 20</option><option value="21-50">Top 21–50</option><option value="51-100">Top 51–100</option><option value="100+">Ngoài Top 100</option><option value="unknown">Chưa có thứ hạng</option></select><select value={rankSort} onChange={event => setRankSort(event.target.value)}><option value="position">Sắp xếp: Vị trí</option><option value="keyword">Sắp xếp: Keyword</option><option value="clicks">Sắp xếp: Clicks</option><option value="impressions">Sắp xếp: Impressions</option><option value="ctr">Sắp xếp: CTR</option></select><button className="secondary sort-direction" onClick={() => setRankDirection(current => current === "asc" ? "desc" : "asc")}>{rankDirection === "asc" ? "Tăng dần ↑" : "Giảm dần ↓"}</button></>}</div><div className="button-row">{(module === "rankings" || module === "analytics") && <label className="import-date"><span>Ngày áp dụng</span><input aria-label="Ngày áp dụng dữ liệu nhập" type="date" value={importDate} onChange={event => setImportDate(event.target.value)} /></label>}<input ref={fileRef} hidden type="file" accept={module === "rankings" ? ".zip,.csv,.tsv,application/zip,text/csv,text/tab-separated-values" : ".csv,.tsv,text/csv,text/tab-separated-values"} onChange={importCsv} /><button className="secondary" onClick={() => fileRef.current?.click()}>{module === "rankings" ? "Nhập ZIP / CSV GSC" : module === "analytics" ? "Nhập CSV GA4" : "Nhập CSV"}</button><button className="secondary" onClick={exportCsv}>Xuất CSV</button></div></div>
+    {module === "rankings" && <p className="import-help">Có thể nhập thẳng file <b>.zip</b> tải từ Search Console. Hệ thống tự lấy <b>Cụm từ tìm kiếm.csv</b> cho bảng từ khóa và <b>Sơ đồ.csv</b> cho KPI tổng, bỏ qua các file không cần thiết.</p>}
     <div className="panel full">{module === "content" ? <ContentPlanTable rows={visibleRows} actions={rowActions} /> : <SimpleTable rows={visibleRows} columns={meta.columns} showIndex={module === "rankings"} indexOffset={module === "rankings" ? (rankPage - 1) * rankPageSize : 0} actions={rowActions} />}</div>
     {module === "rankings" && <div className="pagination"><span>Hiển thị {filtered.length ? (rankPage - 1) * rankPageSize + 1 : 0}–{Math.min(rankPage * rankPageSize, filtered.length)} / {filtered.length} keyword</span><div><button className="secondary" disabled={rankPage <= 1} onClick={() => setRankPage(page => Math.max(1, page - 1))}>← Trước</button><b>Trang {rankPage} / {rankTotalPages}</b><button className="secondary" disabled={rankPage >= rankTotalPages} onClick={() => setRankPage(page => Math.min(rankTotalPages, page + 1))}>Sau →</button></div></div>}
     {open && <EditorModal title={`${editing ? "Sửa" : "Thêm"} ${meta.title}`} module={module} row={editing || { id: uid(meta.prefix) }} personnel={personnel} defaultOwner={personnel.find(person => String(person.status || "Active") !== "Inactive")?.name?.toString() || ""} onSave={save} onClose={() => { setOpen(false); setEditing(null); }} />}
@@ -1045,11 +1175,10 @@ function ReportWithGsc({ data, settings }: { data: AppData; settings: SiteSettin
   const audits = data.audits.filter(row => inRange(row.completed || row.found || row.due));
   const indexing = data.indexing.filter(row => inRange(row.checked || row.submitted));
   const backlinks = data.backlinks.filter(row => inRange(row.placed || row.checked));
-  const rankings = data.rankings.filter(row => inRange(row.date));
-  const clicks = rankings.reduce((sum, row) => sum + Number(row.clicks || 0), 0);
-  const impressions = rankings.reduce((sum, row) => sum + Number(row.impressions || 0), 0);
-  const ctr = impressions ? clicks / impressions * 100 : 0;
-  const avgPosition = rankings.length ? rankings.reduce((sum, row) => sum + Number(row.position || 0), 0) / rankings.length : 0;
+  const rankingRows = data.rankings.filter(row => inRange(row.date));
+  const rankings = gscKeywordRows(rankingRows);
+  const searchStats = gscStats(rankingRows);
+  const { clicks, impressions, ctr, position: avgPosition } = searchStats;
   const top3 = rankings.filter(row => Number(row.position) <= 3).length;
   const top10 = rankings.filter(row => Number(row.position) <= 10).length;
   const top20 = rankings.filter(row => Number(row.position) <= 20).length;
@@ -1078,11 +1207,10 @@ function DetailedReports({ data, settings }: { data: AppData; settings: SiteSett
   const audits = data.audits.filter(row => inRange(row.completed || row.found || row.due));
   const indexRows = data.indexing.filter(row => inRange(row.checked || row.submitted));
   const backlinks = data.backlinks.filter(row => inRange(row.placed || row.checked));
-  const rankings = data.rankings.filter(row => inRange(row.date));
-  const gscClicks = rankings.reduce((sum, row) => sum + Number(row.clicks || 0), 0);
-  const gscImpressions = rankings.reduce((sum, row) => sum + Number(row.impressions || 0), 0);
-  const gscCtr = gscImpressions ? gscClicks / gscImpressions * 100 : 0;
-  const gscPosition = rankings.length ? rankings.reduce((sum, row) => sum + Number(row.position || 0), 0) / rankings.length : 0;
+  const rankingRows = data.rankings.filter(row => inRange(row.date));
+  const rankings = gscKeywordRows(rankingRows);
+  const searchStats = gscStats(rankingRows);
+  const { clicks: gscClicks, impressions: gscImpressions, ctr: gscCtr, position: gscPosition } = searchStats;
   const top3 = rankings.filter(row => Number(row.position) <= 3).length;
   const top10 = rankings.filter(row => Number(row.position) <= 10).length;
   const top20 = rankings.filter(row => Number(row.position) <= 20).length;
@@ -1124,8 +1252,7 @@ function Reports({ data, settings }: { data: AppData; settings: SiteSettings }) 
   const done = data.tasks.filter(row => row.status === "Done").length;
   const completion = data.tasks.length ? Math.round(done / data.tasks.length * 100) : 0;
   const withCompletionDate = data.tasks.filter(row => row.status === "Done" && row.completedDate).length;
-  const clicks = data.rankings.reduce((sum, row) => sum + Number(row.clicks || 0), 0);
-  const impressions = data.rankings.reduce((sum, row) => sum + Number(row.impressions || 0), 0);
+  const { clicks, impressions } = gscStats(data.rankings);
   const stats = [
     ["Bài đã đăng", data.content.filter(row => row.status === "Published").length], ["Task hoàn thành", done], ["Tỷ lệ hoàn thành", `${completion}%`], ["Có ngày hoàn thành", `${withCompletionDate}/${done}`],
     ["URL đã audit", data.audits.length], ["Lỗi đã xử lý", data.audits.filter(row => row.status === "Done").length], ["Backlink live", data.backlinks.filter(row => row.status === "Live").length], ["Entity đã tạo", data.entities.length],
