@@ -161,3 +161,40 @@ nav{gap:18px;padding:3px 0}.nav-group{position:relative;padding-left:8px}.nav-gr
   .report-toc-widget{display:none!important}
 }
 
+/* Section heading count badge */
+.report-section-badge-count{display:inline-flex;align-items:center;margin-left:12px;padding:3px 12px;border-radius:20px;background:#eef4ff;color:#2f55cc;font-size:12px;font-weight:750;letter-spacing:0.2px;border:1px solid #d4e2fd;vertical-align:middle}
+.report-toc-item-count{margin-left:auto;padding:2px 8px;border-radius:10px;background:#1a284c;color:#9cb2e2;font-size:10px;font-weight:700;white-space:nowrap}
+.report-toc-item.active .report-toc-item-count{background:#3b65d8;color:#fff}
+
+/* Section 1 Task Breakdown */
+.report-field-breakdown-section{margin-top:26px;border:1px solid #e1e7f0;border-radius:12px;background:#fff;padding:22px;box-shadow:0 4px 18px #0f1c3f08}
+.report-field-breakdown-head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:18px;flex-wrap:wrap}
+.report-field-breakdown-title{margin:0 0 5px;font-size:16px;color:var(--report-navy);display:flex;align-items:center;gap:8px}
+.report-field-breakdown-desc{margin:0;font-size:12px;color:#6c7c93}
+.report-field-grand-badge{display:flex;flex-direction:column;align-items:flex-end;padding:8px 16px;border-radius:9px;background:linear-gradient(135deg,#15254c,#25407d);color:#fff}
+.report-field-grand-badge span{font-size:9px;font-weight:750;letter-spacing:0.6px;color:#a9beeb}
+.report-field-grand-badge strong{font-size:17px;font-weight:900}
+.report-field-name{display:flex;align-items:center;gap:10px}
+.report-field-icon{font-size:18px;flex-shrink:0}
+.report-field-name b{display:block;font-size:12px;color:#1d2c46}
+.report-field-name small{display:block;font-size:10px;color:#79879c;margin-top:1px}
+.report-badge-done{display:inline-flex;align-items:center;padding:3px 9px;border-radius:6px;background:#eafaf1;color:#148055;font-size:11px;font-weight:700}
+.report-badge-pending{display:inline-flex;align-items:center;padding:3px 9px;border-radius:6px;background:#fef6e7;color:#b46b0a;font-size:11px;font-weight:650}
+.report-badge-zero{color:#a0abbd}
+.report-progress-wrap{display:flex;align-items:center;gap:8px}
+.report-progress-bar{flex:1;height:8px;border-radius:4px;background:#e9eef6;overflow:hidden}
+.report-progress-fill{height:100%;border-radius:4px;transition:width 0.3s ease}
+.report-progress-text{font-size:11px;font-weight:800;color:#33425a;min-width:34px;text-align:right}
+.report-field-owners{font-size:11px;color:#55657e}
+.report-table-footer-total td{background:#f6f8fd;font-weight:750;border-top:2px solid #cbd5e1;padding:12px 14px}
+@media (max-width:800px){
+  .report-field-breakdown-head{flex-direction:column;align-items:flex-start}
+  .report-field-grand-badge{align-items:flex-start;width:100%}
+  .report-section-badge-count{display:block;margin:6px 0 0 0;width:fit-content}
+}
+@media print{
+  .report-field-breakdown-section{break-inside:avoid;box-shadow:none;padding:12px}
+  .report-section-badge-count{border:1px solid #999;color:#333;background:#f3f3f3}
+}
+
+

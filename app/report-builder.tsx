@@ -96,13 +96,16 @@ function rangeData(data: ReportData, from: string, to: string): ReportData {
   return {
     rankings: (data.rankings || []).filter(row => inRange(row.date)),
     analytics: (data.analytics || []).filter(row => inRange(row.date)),
-    tasks: (data.tasks || []).filter(row => inRange(row.completedDate || row.startDate)),
+    tasks: (data.tasks || []).filter(row => (!row.completedDate && !row.startDate) || inRange(row.completedDate || row.startDate)),
     worklogs: (data.worklogs || []).filter(row => inRange(row.date || row.occurredAt)),
-    content: (data.content || []).filter(row => inRange(row.publishDate)),
-    audits: (data.audits || []).filter(row => inRange(row.completed || row.found || row.due)),
-    indexing: (data.indexing || []).filter(row => inRange(row.checked || row.submitted || row.created)),
-    backlinks: (data.backlinks || []).filter(row => inRange(row.placed || row.checked)),
+    content: (data.content || []).filter(row => !row.publishDate || inRange(row.publishDate)),
+    audits: (data.audits || []).filter(row => (!row.completed && !row.found && !row.due) || inRange(row.completed || row.found || row.due)),
+    indexing: (data.indexing || []).filter(row => (!row.checked && !row.submitted && !row.created) || inRange(row.checked || row.submitted || row.created)),
+    backlinks: (data.backlinks || []).filter(row => (!row.placed && !row.checked) || inRange(row.placed || row.checked)),
     expenses: (data.expenses || []).filter(row => inRange(row.date)),
+    onpage: (data.onpage || []).filter(row => !row.checked || inRange(row.checked)),
+    entities: (data.entities || []).filter(row => !row.updated || inRange(row.updated)),
+    seeding: (data.seeding || []).filter(row => (!row.posted && !row.checked) || inRange(row.posted || row.checked)),
   };
 }
 
@@ -111,13 +114,21 @@ function suggestedSummary(snapshot: ReportData) {
   const analytics = snapshot.analytics || [];
   const gaOverview = analytics.find(row => row.channel === "Tổng quan");
   const gaChannelRows = analytics.filter(row => row.channel !== "Tổng quan" && row.channel !== "Trang xem nhiều" && !row.page);
+  const gaPageRows = analytics.filter(row => row.channel === "Trang xem nhiều" || (row.page && asNumber(row.views) > 0));
   const sessions = gaOverview ? asNumber(gaOverview.sessions) : gaChannelRows.reduce((sum, row) => sum + asNumber(row.sessions), 0);
   const users = gaOverview ? asNumber(gaOverview.users) : gaChannelRows.reduce((sum, row) => sum + asNumber(row.users), 0);
-  const done = (snapshot.tasks || []).filter(row => asText(row.status) === "Done").length;
+  const views = gaOverview ? asNumber(gaOverview.views) : gaPageRows.reduce((sum, row) => sum + asNumber(row.views), 0);
+  const tasks = snapshot.tasks || [];
+  const done = tasks.filter(row => asText(row.status) === "Done").length;
   const published = (snapshot.content || []).filter(row => asText(row.status) === "Published").length;
   const fixed = (snapshot.audits || []).filter(row => asText(row.status) === "Done").length;
+  const indexed = (snapshot.indexing || []).filter(row => asText(row.status) === "Indexed").length;
+  const liveLinks = (snapshot.backlinks || []).filter(row => asText(row.status) === "Live" || asText(row.status) === "Accepted").length;
+  const totalTasks = tasks.length;
   const userText = users ? ` (${formatNumber(users)} người dùng)` : "";
-  return `Trong kỳ, website ghi nhận ${formatNumber(clicks)} lượt nhấp, ${formatNumber(impressions)} lượt hiển thị tự nhiên từ Google Search Console và ${formatNumber(sessions)} phiên truy cập${userText} theo Google Analytics. Đội ngũ đã hoàn thành ${done} công việc, xuất bản ${published} nội dung và xử lý ${fixed} hạng mục kỹ thuật. Các số liệu chi tiết theo kênh traffic và trang được trình bày ở các phần bên dưới.`;
+  const viewsText = views ? `, ${formatNumber(views)} lượt xem` : "";
+  const taskText = totalTasks > 0 ? `hoàn thành ${done}/${totalTasks} công việc SEO` : `hoàn thành ${done} công việc SEO`;
+  return `Trong kỳ, website ghi nhận ${formatNumber(clicks)} lượt nhấp, ${formatNumber(impressions)} lượt hiển thị tự nhiên từ Google Search Console và ${formatNumber(sessions)} phiên truy cập${userText}${viewsText} theo Google Analytics. Đội ngũ đã ${taskText}, xuất bản ${published} nội dung mới, xử lý ${fixed} hạng mục kỹ thuật, xác nhận ${indexed} URL đã index và duy trì ${liveLinks} backlink hoạt động. Toàn bộ thống kê chi tiết theo từng phân hệ công việc và số liệu hiệu suất được trình bày ở các phần bên dưới.`;
 }
 
 function suggestedPlan(snapshot: ReportData) {
@@ -243,8 +254,192 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
   const gaEngagedSessions = gaOverview ? asNumber(gaOverview.engagedSessions) : gaChannelRows.reduce((sum, row) => sum + asNumber(row.engagedSessions), 0);
   const gaConversions = gaOverview ? asNumber(gaOverview.conversions) : gaChannelRows.reduce((sum, row) => sum + asNumber(row.conversions), 0);
   const gaEngagementRate = gaSessions ? Math.min(100, gaEngagedSessions / gaSessions * 100) : analytics.length ? analytics.reduce((sum, row) => sum + asNumber(row.engagementRate), 0) / analytics.length : 0;
-  const completedTasks = (snapshot.tasks || []).filter(row => asText(row.status) === "Done");
+  // Modules / Fields task counts
+  const tasks = snapshot.tasks || [];
+  const completedTasks = tasks.filter(row => asText(row.status) === "Done");
+  const inProgressTasks = tasks.filter(row => asText(row.status) === "In progress" || asText(row.status) === "Doing");
+  const pendingTasks = tasks.filter(row => asText(row.status) !== "Done");
+
+  const contentRows = snapshot.content || [];
+  const publishedContent = contentRows.filter(row => asText(row.status) === "Published");
+  const inProgressContent = contentRows.filter(row => asText(row.status) !== "Published");
+
+  const auditRows = snapshot.audits || [];
+  const doneAudits = auditRows.filter(row => asText(row.status) === "Done");
+  const pendingAudits = auditRows.filter(row => asText(row.status) !== "Done");
+
+  const indexingRows = snapshot.indexing || [];
+  const indexedUrls = indexingRows.filter(row => asText(row.status) === "Indexed");
+  const unindexedUrls = indexingRows.filter(row => asText(row.status) !== "Indexed");
+
+  const backlinkRows = snapshot.backlinks || [];
+  const liveBacklinks = backlinkRows.filter(row => asText(row.status) === "Live" || asText(row.status) === "Accepted");
+  const pendingBacklinks = backlinkRows.filter(row => asText(row.status) !== "Live" && asText(row.status) !== "Accepted");
+
+  const worklogRows = snapshot.worklogs || [];
+  const onpageRows = snapshot.onpage || [];
+  const entityRows = snapshot.entities || [];
+  const seedingRows = snapshot.seeding || [];
+  const expenseRows = snapshot.expenses || [];
   const hours = (snapshot.worklogs || []).reduce((sum, row) => sum + asNumber(row.hours), 0);
+
+  const totalTasksCount = tasks.length;
+  const totalContentCount = contentRows.length;
+  const totalAuditsCount = auditRows.length;
+  const totalIndexingCount = indexingRows.length;
+  const totalBacklinksCount = backlinkRows.length;
+  const totalWorklogsCount = worklogRows.length;
+
+  const grandTotalWorkItems = totalTasksCount + totalContentCount + totalAuditsCount + totalIndexingCount + totalBacklinksCount + totalWorklogsCount;
+  const grandTotalCompleted = completedTasks.length + publishedContent.length + doneAudits.length + indexedUrls.length + liveBacklinks.length + totalWorklogsCount;
+  const grandTotalPending = Math.max(0, grandTotalWorkItems - grandTotalCompleted);
+  const overallPercent = grandTotalWorkItems > 0 ? Math.round((grandTotalCompleted / grandTotalWorkItems) * 100) : 100;
+
+  const getFieldOwners = (rows: Row[]) => {
+    const list = Array.from(new Set(rows.map(r => asText(r.owner)).filter(Boolean)));
+    return list.slice(0, 2).join(", ") || settings.owner;
+  };
+
+  const taskBreakdownRows = [
+    {
+      key: "tasks",
+      icon: "📋",
+      name: "Công việc SEO (Workflow Tasks)",
+      description: "Nhiệm vụ tối ưu Onpage, Technical, chiến dịch",
+      total: totalTasksCount,
+      done: completedTasks.length,
+      pending: pendingTasks.length,
+      unit: "task",
+      doneLabel: "xong",
+      pendingLabel: "đang làm",
+      percentage: totalTasksCount > 0 ? Math.round((completedTasks.length / totalTasksCount) * 100) : 0,
+      owners: getFieldOwners(tasks),
+    },
+    {
+      key: "content",
+      icon: "✍️",
+      name: "Kế hoạch nội dung (Content Plan)",
+      description: "Bài viết chuẩn SEO, pillar & cluster content",
+      total: totalContentCount,
+      done: publishedContent.length,
+      pending: inProgressContent.length,
+      unit: "bài viết",
+      doneLabel: "đã đăng",
+      pendingLabel: "đang soạn/duyệt",
+      percentage: totalContentCount > 0 ? Math.round((publishedContent.length / totalContentCount) * 100) : 0,
+      owners: getFieldOwners(contentRows),
+    },
+    {
+      key: "audits",
+      icon: "🛠️",
+      name: "Technical SEO Audit",
+      description: "Phát hiện & sửa lỗi kỹ thuật, redirect, tốc độ",
+      total: totalAuditsCount,
+      done: doneAudits.length,
+      pending: pendingAudits.length,
+      unit: "lỗi",
+      doneLabel: "đã sửa",
+      pendingLabel: "đang xử lý",
+      percentage: totalAuditsCount > 0 ? Math.round((doneAudits.length / totalAuditsCount) * 100) : 0,
+      owners: getFieldOwners(auditRows),
+    },
+    {
+      key: "indexing",
+      icon: "🔍",
+      name: "Kiểm tra chỉ mục (Index Tracking)",
+      description: "Submit URL và theo dõi trạng thái index Google",
+      total: totalIndexingCount,
+      done: indexedUrls.length,
+      pending: unindexedUrls.length,
+      unit: "URL",
+      doneLabel: "đã index",
+      pendingLabel: "chưa index",
+      percentage: totalIndexingCount > 0 ? Math.round((indexedUrls.length / totalIndexingCount) * 100) : 0,
+      owners: getFieldOwners(indexingRows),
+    },
+    {
+      key: "backlinks",
+      icon: "🔗",
+      name: "Liên kết Backlink (Off-page)",
+      description: "Xây dựng domain uy tín và anchor text trỏ về",
+      total: totalBacklinksCount,
+      done: liveBacklinks.length,
+      pending: pendingBacklinks.length,
+      unit: "backlink",
+      doneLabel: "đang live",
+      pendingLabel: "chờ duyệt/đặt",
+      percentage: totalBacklinksCount > 0 ? Math.round((liveBacklinks.length / totalBacklinksCount) * 100) : 0,
+      owners: getFieldOwners(backlinkRows),
+    },
+    {
+      key: "worklogs",
+      icon: "⏱️",
+      name: "Nhật ký làm việc (Daily Worklogs)",
+      description: "Ghi nhận công việc chi tiết hàng ngày và giờ làm",
+      total: totalWorklogsCount,
+      done: totalWorklogsCount,
+      pending: 0,
+      unit: "nhật ký",
+      doneLabel: `${hours}h xong`,
+      pendingLabel: "",
+      percentage: 100,
+      owners: getFieldOwners(worklogRows),
+    },
+  ];
+
+  if (onpageRows.length > 0) {
+    taskBreakdownRows.push({
+      key: "onpage",
+      icon: "📄",
+      name: "On-page Checklist",
+      description: "Chấm điểm tiêu chuẩn On-page các trang đích",
+      total: onpageRows.length,
+      done: onpageRows.length,
+      pending: 0,
+      unit: "URL",
+      doneLabel: "đã audit",
+      pendingLabel: "",
+      percentage: 100,
+      owners: getFieldOwners(onpageRows),
+    });
+  }
+
+  if (entityRows.length > 0) {
+    const verifiedEntities = entityRows.filter(r => asText(r.verified) === "Verified" || asText(r.verified) === "Complete");
+    taskBreakdownRows.push({
+      key: "entities",
+      icon: "🏢",
+      name: "Entity SEO & Thương hiệu",
+      description: "Thiết lập profile social, thư mục và NAP",
+      total: entityRows.length,
+      done: verifiedEntities.length,
+      pending: entityRows.length - verifiedEntities.length,
+      unit: "profile",
+      doneLabel: "đã xác minh",
+      pendingLabel: "chờ xác minh",
+      percentage: Math.round((verifiedEntities.length / entityRows.length) * 100),
+      owners: getFieldOwners(entityRows),
+    });
+  }
+
+  if (seedingRows.length > 0) {
+    const liveSeeding = seedingRows.filter(r => asText(r.status) === "Live");
+    taskBreakdownRows.push({
+      key: "seeding",
+      icon: "📣",
+      name: "Seeding & Phân phối",
+      description: "Bài chia sẻ diễn đàn, hội nhóm và mạng xã hội",
+      total: seedingRows.length,
+      done: liveSeeding.length,
+      pending: seedingRows.length - liveSeeding.length,
+      unit: "link post",
+      doneLabel: "đang live",
+      pendingLabel: "chờ duyệt",
+      percentage: Math.round((liveSeeding.length / seedingRows.length) * 100),
+      owners: getFieldOwners(seedingRows),
+    });
+  }
+
   const topQueries = [...rankings]
     .filter(row => asNumber(row.clicks) > 0 || asNumber(row.impressions) > 0)
     .sort((a, b) => asNumber(b.clicks) - asNumber(a.clicks) || asNumber(b.impressions) - asNumber(a.impressions))
@@ -264,17 +459,53 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
   const topPages = [...pageMap.values()].sort((a, b) => asNumber(b.clicks) - asNumber(a.clicks)).slice(0, 10).map(row => ({ ...row, position: asNumber(row.position).toFixed(1), ctr: `${asNumber(row.ctr).toFixed(2)}%` }));
   const metrics = [
     ["Organic clicks", formatNumber(clicks)], ["Impressions", formatNumber(impressions)], ["CTR", `${ctr.toFixed(2)}%`], ["Vị trí trung bình", avgPosition ? avgPosition.toFixed(1) : "—"],
-    ["Từ khóa Top 3", rankings.filter(row => asNumber(row.position) <= 3).length], ["Từ khóa Top 10", rankings.filter(row => asNumber(row.position) <= 10).length], ["GA4 Sessions", formatNumber(gaSessions)], ["GA4 Users", formatNumber(gaUsers)], ...(gaViews > 0 ? [["GA4 Lượt xem trang", formatNumber(gaViews)]] : []), ["Chuyển đổi", formatNumber(gaConversions)], ["Task hoàn thành", completedTasks.length], ["Giờ triển khai", `${hours}h`],
+    ["Từ khóa Top 3", rankings.filter(row => asNumber(row.position) <= 3).length], ["Từ khóa Top 10", rankings.filter(row => asNumber(row.position) <= 10).length], ["GA4 Sessions", formatNumber(gaSessions)], ["GA4 Users", formatNumber(gaUsers)], ...(gaViews > 0 ? [["GA4 Lượt xem trang", formatNumber(gaViews)]] : []), ["Chuyển đổi", formatNumber(gaConversions)],
+    ["Tổng task triển khai", `${grandTotalWorkItems} task`],
+    ["Task hoàn thành", `${completedTasks.length} / ${totalTasksCount || completedTasks.length}`],
+    ["Bài viết xuất bản", `${publishedContent.length} / ${totalContentCount || publishedContent.length}`],
+    ["Lỗi kỹ thuật đã sửa", `${doneAudits.length} / ${totalAuditsCount || doneAudits.length}`],
+    ["Giờ triển khai", `${hours}h`],
   ];
   const generatedAt = new Date().toISOString();
 
   const [tocOpen, setTocOpen] = useState(false);
   const [activeSectionKey, setActiveSectionKey] = useState<string>("");
 
+  const getSectionBadge = (key: SectionKey): string => {
+    switch (key) {
+      case "overview":
+        return grandTotalWorkItems > 0 ? `${grandTotalWorkItems} task & hạng mục` : "Tổng quan";
+      case "gsc":
+        return allRankings.length > 0 ? `${formatNumber(allRankings.length)} từ khóa GSC` : "";
+      case "analytics":
+        return gaPageRows.length > 0 ? `${gaChannelRows.length} kênh · ${gaPageRows.length} trang` : gaChannelRows.length > 0 ? `${gaChannelRows.length} kênh traffic` : "";
+      case "keywords":
+        return topQueries.length > 0 ? `${topQueries.length} từ khóa Top` : "";
+      case "pages":
+        return gaPageRows.length > 0 ? `${gaPageRows.length} trang xem nhiều` : topPages.length > 0 ? `${topPages.length} landing page` : "";
+      case "tasks":
+        return tasks.length > 0 ? `${completedTasks.length}/${tasks.length} task xong` : "";
+      case "worklogs":
+        return worklogRows.length > 0 ? `${worklogRows.length} nhật ký (${hours}h)` : "";
+      case "content":
+        return contentRows.length > 0 ? `${publishedContent.length}/${contentRows.length} bài đã đăng` : "";
+      case "audits":
+        return auditRows.length > 0 ? `${doneAudits.length}/${auditRows.length} lỗi đã sửa` : "";
+      case "indexing":
+        return indexingRows.length > 0 ? `${indexedUrls.length}/${indexingRows.length} URL đã index` : "";
+      case "backlinks":
+        return backlinkRows.length > 0 ? `${liveBacklinks.length}/${backlinkRows.length} link live` : "";
+      case "expenses":
+        return expenseRows.length > 0 ? `${expenseRows.length} khoản chi` : "";
+      default:
+        return "";
+    }
+  };
+
   const sectionHasData = (key: SectionKey): boolean => {
     switch (key) {
       case "overview":
-        return Boolean(summary.trim() || clicks > 0 || impressions > 0 || gaSessions > 0 || rankings.length > 0);
+        return Boolean(summary.trim() || clicks > 0 || impressions > 0 || gaSessions > 0 || rankings.length > 0 || grandTotalWorkItems > 0);
       case "gsc":
         return clicks > 0 || impressions > 0 || allRankings.length > 0;
       case "analytics":
@@ -284,19 +515,19 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
       case "pages":
         return gaPageRows.length > 0 || topPages.length > 0;
       case "tasks":
-        return completedTasks.length > 0;
+        return tasks.length > 0 || completedTasks.length > 0;
       case "worklogs":
-        return (snapshot.worklogs || []).length > 0;
+        return worklogRows.length > 0;
       case "content":
-        return (snapshot.content || []).length > 0;
+        return contentRows.length > 0;
       case "audits":
-        return (snapshot.audits || []).length > 0;
+        return auditRows.length > 0;
       case "indexing":
-        return (snapshot.indexing || []).length > 0;
+        return indexingRows.length > 0;
       case "backlinks":
-        return (snapshot.backlinks || []).length > 0;
+        return backlinkRows.length > 0;
       case "expenses":
-        return (snapshot.expenses || []).length > 0;
+        return expenseRows.length > 0;
       case "monthlyReview":
         return Boolean(monthlyReview && monthlyReview.trim().length > 0);
       case "nextPlan":
@@ -454,17 +685,153 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
     if (!section.enabled || !sectionHasData(section.key)) return null;
     const sectionIndex = visibleSections.findIndex(item => item.key === section.key);
     const sectionNumber = String((sectionIndex >= 0 ? sectionIndex : 0) + 1).padStart(2, "0");
+    const badge = getSectionBadge(section.key);
     const wrapper = (content: React.ReactNode) => (
       <section className="report-document-section" key={section.key} id={`report-section-${section.key}`}>
         <div className="report-section-heading">
           <span>{sectionNumber}</span>
-          <h2>{section.title}</h2>
+          <h2>
+            {section.title}
+            {badge && <span className="report-section-badge-count">{badge}</span>}
+          </h2>
         </div>
         {content}
       </section>
     );
 
-    if (section.key === "overview") return wrapper(<><div className="report-kpi-grid">{metrics.map(([label, value]) => <div key={String(label)}><span>{label}</span><strong>{value}</strong></div>)}</div><div className="report-narrative">{summary.split("\n").map((line, index) => <p key={index}>{line || <br />}</p>)}</div></>);
+    if (section.key === "overview") return wrapper(
+      <>
+        <div className="report-kpi-grid">
+          {metrics.map(([label, value]) => (
+            <div key={String(label)}>
+              <span>{label}</span>
+              <strong>{value}</strong>
+            </div>
+          ))}
+        </div>
+        <div className="report-narrative">
+          {summary.split("\n").map((line, index) => <p key={index}>{line || <br />}</p>)}
+        </div>
+
+        {/* Bảng thống kê chi tiết khối lượng công việc theo trường thông tin */}
+        <div className="report-field-breakdown-section">
+          <div className="report-field-breakdown-head">
+            <div>
+              <h3 className="report-field-breakdown-title">
+                <span>📊</span> Thống kê chi tiết khối lượng công việc theo trường thông tin
+              </h3>
+              <p className="report-field-breakdown-desc">
+                Tổng hợp số lượng task, tỷ lệ hoàn thành và nhân sự phụ trách trên các trường phân hệ SEO trong kỳ
+              </p>
+            </div>
+            <div className="report-field-grand-badge">
+              <span>TỔNG CỘNG KHỐI LƯỢNG</span>
+              <strong>{grandTotalWorkItems} task & hạng mục</strong>
+            </div>
+          </div>
+
+          <div className="report-table-wrap">
+            <table className="report-table report-field-task-table">
+              <thead>
+                <tr>
+                  <th style={{ width: "38px", textAlign: "center" }}>STT</th>
+                  <th>Trường thông tin / Phân hệ SEO</th>
+                  <th style={{ textAlign: "center" }}>Tổng số lượng</th>
+                  <th>Đã hoàn thành</th>
+                  <th>Đang làm / Chờ xử lý</th>
+                  <th style={{ width: "160px" }}>Tiến độ hoàn thành</th>
+                  <th>Phụ trách</th>
+                </tr>
+              </thead>
+              <tbody>
+                {taskBreakdownRows.map((item, idx) => (
+                  <tr key={item.key}>
+                    <td style={{ textAlign: "center", color: "#8d99ab", fontWeight: 700 }}>{idx + 1}</td>
+                    <td>
+                      <div className="report-field-name">
+                        <span className="report-field-icon">{item.icon}</span>
+                        <div>
+                          <b>{item.name}</b>
+                          <small>{item.description}</small>
+                        </div>
+                      </div>
+                    </td>
+                    <td style={{ textAlign: "center", fontWeight: 800, fontSize: "14px", color: "var(--report-navy)" }}>
+                      {item.total} {item.unit}
+                    </td>
+                    <td>
+                      {item.done > 0 ? (
+                        <span className="report-badge-done">
+                          ✓ {item.done} {item.doneLabel || "hoàn thành"}
+                        </span>
+                      ) : (
+                        <span className="report-badge-zero">0</span>
+                      )}
+                    </td>
+                    <td>
+                      {item.pending > 0 ? (
+                        <span className="report-badge-pending">
+                          ⏳ {item.pending} {item.pendingLabel || "đang xử lý"}
+                        </span>
+                      ) : (
+                        <span className="report-badge-zero">—</span>
+                      )}
+                    </td>
+                    <td>
+                      <div className="report-progress-wrap">
+                        <div className="report-progress-bar">
+                          <div
+                            className="report-progress-fill"
+                            style={{
+                              width: `${item.percentage}%`,
+                              background: item.percentage >= 100 ? "#10b981" : item.percentage >= 50 ? "#3b82f6" : item.percentage > 0 ? "#f59e0b" : "#cbd5e1"
+                            }}
+                          />
+                        </div>
+                        <span className="report-progress-text">{item.percentage}%</span>
+                      </div>
+                    </td>
+                    <td>
+                      <span className="report-field-owners">{item.owners || "—"}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="report-table-footer-total">
+                  <td colSpan={2}>
+                    <b>TỔNG CỘNG KHỐI LƯỢNG CÔNG VIỆC THỰC HIỆN</b>
+                  </td>
+                  <td style={{ textAlign: "center", fontWeight: 900, fontSize: "15px", color: "#1e3a8a" }}>
+                    {grandTotalWorkItems} task
+                  </td>
+                  <td>
+                    <b style={{ color: "#059669" }}>{grandTotalCompleted} hoàn tất</b>
+                  </td>
+                  <td>
+                    <span style={{ color: grandTotalPending > 0 ? "#d97706" : "#64748b", fontWeight: 650 }}>
+                      {grandTotalPending > 0 ? `${grandTotalPending} đang làm` : "0 tồn đọng"}
+                    </span>
+                  </td>
+                  <td>
+                    <div className="report-progress-wrap">
+                      <div className="report-progress-bar">
+                        <div
+                          className="report-progress-fill"
+                          style={{ width: `${overallPercent}%`, background: "#10b981" }}
+                        />
+                      </div>
+                      <span className="report-progress-text">{overallPercent}%</span>
+                    </div>
+                  </td>
+                  <td>—</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      </>
+    );
     if (section.key === "gsc") return wrapper(<div className="report-gsc-strip"><div><span>Clicks</span><b>{formatNumber(clicks)}</b></div><div><span>Impressions</span><b>{formatNumber(impressions)}</b></div><div><span>CTR</span><b>{ctr.toFixed(2)}%</b></div><div><span>Vị trí TB</span><b>{avgPosition ? avgPosition.toFixed(1) : "—"}</b></div></div>);
     if (section.key === "analytics") {
       const channelTotal = gaChannelRows.reduce((sum, r) => sum + asNumber(r.sessions), 0) || 1;
@@ -614,6 +981,9 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
                 >
                   <span className="report-toc-badge">{String(idx + 1).padStart(2, "0")}</span>
                   <span className="report-toc-text">{section.title}</span>
+                  {getSectionBadge(section.key) && (
+                    <span className="report-toc-item-count">{getSectionBadge(section.key)}</span>
+                  )}
                 </button>
               );
             })}
@@ -624,6 +994,7 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
             >
               <span className="report-toc-badge">✓</span>
               <span className="report-toc-text">Xác nhận & chữ ký</span>
+              <span className="report-toc-item-count">2 bên ký</span>
             </button>
           </div>
           <div className="report-toc-footer">
