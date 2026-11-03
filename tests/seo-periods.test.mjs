@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import ts from "typescript";
 
 const code = ts.transpileModule(readFileSync(new URL("../lib/seo-periods.ts", import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 } }).outputText;
-const { monthPeriod, previousPeriod, validPeriod, vietnamToday, rowsInPeriod, gscMetrics, analyticsMetrics, comparisonMetrics, metricChange, planImport, reportRange, reportComparison } = await import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`);
+const { monthPeriod, previousPeriod, validPeriod, vietnamToday, rowsInPeriod, gscMetrics, analyticsMetrics, comparisonMetrics, metricChange, planImport, reportRange, reportComparison, mainReportMetrics, compareReportSnapshots } = await import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`);
 const september = { from: "2026-09-01", to: "2026-09-30" };
 const october = { from: "2026-10-01", to: "2026-10-31" };
 const row = (id, period, extra) => ({ id, date: period.to, periodStart: period.from, periodEnd: period.to, granularity: "period", ...extra });
@@ -120,4 +120,27 @@ test("serialized report snapshots freeze both current and baseline metrics indep
   data.rankings[0].clicks = 0; data.rankings[1].clicks = 0; data.analytics[0].sessions = 9999;
   assert.deepEqual(reportComparison(saved.snapshot, saved.comparisonSnapshot, october), before);
   assert.equal(before.find(metric => metric.key === "rankings.clicks").previous, 1000);
+});
+
+
+test("selected legacy report compares saved totals without requiring import coverage metadata", () => {
+  const baseline = { rankings: [{id:"old",date:"2026-09-30",keyword:"sea",clicks:1000,impressions:10000,position:8}], analytics:[{id:"ga-old",date:"2026-09-30",channel:"Tổng quan",sessions:2000}] };
+  const current = { rankings: [{id:"new",date:"2026-10-31",keyword:"sea",clicks:1250,impressions:12500,position:5}], analytics:[{id:"ga-new",date:"2026-10-31",channel:"Tổng quan",sessions:2300}] };
+  const compared = compareReportSnapshots(current, baseline);
+  assert.equal(compared.find(m=>m.key==="rankings.clicks").previous,1000);
+  assert.equal(metricChange(compared[0].value,compared[0].previous).text,"+250 · +25%");
+  assert.equal(compared.find(m=>m.key==="analytics.sessions").previous,2000);
+  assert.equal(compared.find(m=>m.key==="analytics.users").value,null);
+  assert.equal(compared.length,15);
+  assert.ok(compared.some(m=>m.key==="rankings.top3"));
+  assert.ok(!compared.some(m=>m.key==="analytics.newUsers"));
+  assert.ok(!compared.some(m=>m.key==="analytics.engagementRate"));
+});
+test("explicit report comparison keeps real zero counts and does not invent missing Google metrics", () => {
+  const current={tasks:[],rankings:[{id:"a",date:"2026-10-31",keyword:"sea",clicks:10,impressions:100,position:2}]};
+  const metrics=compareReportSnapshots(current,{tasks:[],rankings:[{id:"b",date:"2026-09-30",keyword:"sea",clicks:0,impressions:0,position:0}]});
+  assert.equal(metrics.find(m=>m.key==="tasks.done").previous,0);
+  assert.match(metricChange(metrics[0].value,metrics[0].previous).text,/Phát sinh mới/);
+  assert.equal(metrics.find(m=>m.key==="analytics.sessions").previous,null);
+  assert.ok(compareReportSnapshots(current).every(m=>m.previous===null));
 });

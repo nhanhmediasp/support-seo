@@ -15,11 +15,11 @@ export function MetricDelta({ metric }: { metric: Metric }) {
   return <small className={`metric-delta ${change.tone}`}>{change.text}</small>;
 }
 
-export function MetricStrip({ metrics, label }: { metrics: Metric[]; label: string }) {
+export function MetricStrip({ metrics, label, showComparison = true }: { metrics: Metric[]; label: string; showComparison?: boolean }) {
   const format = (metric: Metric, value: number | null) => value === null ? "—" : `${new Intl.NumberFormat("vi-VN", { maximumFractionDigits: metric.digits ?? (metric.kind === "position" ? 1 : metric.kind === "percent" ? 2 : 0) }).format(value)}${metric.kind === "percent" ? "%" : ""}`;
   return <section className="period-metrics" aria-label={label}>{metrics.map(metric => <div className="period-metric" key={metric.key}>
-    <span>{metric.label}</span><strong>{format(metric, metric.value)}</strong><MetricDelta metric={metric} />
-    {metric.previous !== null && <small className="metric-baseline">Kỳ trước: {format(metric, metric.previous)}</small>}
+    <span>{metric.label}</span><strong>{format(metric, metric.value)}</strong>{showComparison && <MetricDelta metric={metric} />}
+    {showComparison && metric.previous !== null && <small className="metric-baseline">Kỳ trước: {format(metric, metric.previous)}</small>}
   </div>)}</section>;
 }
 

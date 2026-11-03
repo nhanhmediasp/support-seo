@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase, supabaseConfigured } from "../lib/supabase";
-import { analyticsMetrics, gscMetrics, gscKeywordsForPeriod, metricChange, monthPeriod, previousPeriod, reportComparison, reportRange, validPeriod, vietnamToday, workDate } from "../lib/seo-periods";
-import { ComparisonTable, MetricStrip, MonthPicker } from "./period-comparison";
+import { analyticsMetrics, compareReportSnapshots, gscMetrics, gscKeywordsForPeriod, metricChange, monthPeriod, reportRange, validPeriod, vietnamToday, workDate } from "../lib/seo-periods";
+import { MetricStrip, MonthPicker } from "./period-comparison";
 
 type Row = Record<string, string | number | boolean> & { id: string };
 type ReportData = Record<string, Row[]>;
@@ -33,6 +33,7 @@ export type SavedSeoReport = {
   notes: string;
   snapshot: ReportData;
   comparisonSnapshot?: ReportData;
+  comparisonReport?: { id: string; title: string; from: string; to: string };
   kpiTargets?: Record<string, number>;
   previousVersionId?: string;
   signatures?: ReportSignatures;
@@ -370,9 +371,16 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
   const [kpiTargets, setKpiTargets] = useState<Record<string, number>>(viewOnlyReport?.kpiTargets || {});
   const [previousVersionId, setPreviousVersionId] = useState(viewOnlyReport?.previousVersionId || "");
   const snapshot = loadedSnapshot || liveSnapshot;
-  const comparisonPeriod = previousPeriod({ from, to });
-  const priorSnapshot = loadedSnapshot ? loadedComparison || {} : rangeData(data, comparisonPeriod.from, comparisonPeriod.to);
-  const comparedMetrics = reportComparison(snapshot, priorSnapshot, { from, to });
+  const [comparisonReport, setComparisonReport] = useState<SavedSeoReport["comparisonReport"]>(viewOnlyReport?.comparisonReport);
+  const priorSnapshot = comparisonReport ? loadedComparison || {} : {};
+  const comparedMetrics = compareReportSnapshots(snapshot, comparisonReport ? priorSnapshot : undefined);
+  const comparisonCaption = comparisonReport ? `So với ${comparisonReport.title} (${formatDate(comparisonReport.from)} – ${formatDate(comparisonReport.to)})` : "Chưa chọn báo cáo để so sánh";
+  const chooseComparisonReport = (id: string) => {
+    const report = savedReports.find(report => report.id === id && report.id !== editingId);
+    setComparisonReport(report ? { id: report.id, title: report.title, from: report.from, to: report.to } : undefined);
+    setLoadedComparison(report ? JSON.parse(JSON.stringify(report.snapshot)) : null);
+  };
+  const comparisonPicker = <div className="report-comparison-picker print-hide"><label>So sánh với báo cáo<select aria-label="So sánh với báo cáo" value={comparisonReport?.id || ""} onChange={event => chooseComparisonReport(event.target.value)}><option value="">Không so sánh</option>{comparisonReport && !savedReports.some(report => report.id === comparisonReport.id) && <option value={comparisonReport.id}>{comparisonReport.title} (bản đã lưu)</option>}{savedReports.filter(report => report.id !== editingId).map(report => <option key={report.id} value={report.id}>{report.title} · {formatDate(report.from)} – {formatDate(report.to)}</option>)}</select></label><p>{comparisonReport ? comparisonCaption : "Chọn một báo cáo đã lưu để đối chiếu các chỉ số chính."}</p></div>;
   const missingDateCount = Object.entries(data).filter(([module]) => !["rankings", "analytics", "changes", "personnel", "calendar"].includes(module)).reduce((total, [module, rows]) => total + rows.filter(row => !workDate(module, row)).length, 0);
 
   useEffect(() => { if (!summary) setSummary(suggestedSummary(liveSnapshot)); }, []);
@@ -446,12 +454,12 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
     {
       key: "tasks",
       icon: "📋",
-      name: "Công việc SEO (Workflow Tasks)",
-      description: "Nhiệm vụ tối ưu Onpage, Technical, chiến dịch",
+      name: "Công việc SEO",
+      description: "Các đầu việc SEO trong kỳ",
       total: totalTasksCount,
       done: completedTasks.length,
       pending: pendingTasks.length,
-      unit: "task",
+      unit: "việc",
       doneLabel: "xong",
       pendingLabel: "đang làm",
       percentage: totalTasksCount > 0 ? Math.round((completedTasks.length / totalTasksCount) * 100) : 0,
@@ -460,8 +468,8 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
     {
       key: "content",
       icon: "✍️",
-      name: "Kế hoạch nội dung (Content Plan)",
-      description: "Bài viết chuẩn SEO, pillar & cluster content",
+      name: "Nội dung",
+      description: "Viết mới và cập nhật bài viết",
       total: totalContentCount,
       done: publishedContent.length,
       pending: inProgressContent.length,
@@ -474,8 +482,8 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
     {
       key: "audits",
       icon: "🛠️",
-      name: "Technical SEO Audit",
-      description: "Phát hiện & sửa lỗi kỹ thuật, redirect, tốc độ",
+      name: "Lỗi kỹ thuật",
+      description: "Kiểm tra và sửa lỗi trên website",
       total: totalAuditsCount,
       done: doneAudits.length,
       pending: pendingAudits.length,
@@ -488,8 +496,8 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
     {
       key: "indexing",
       icon: "🔍",
-      name: "Kiểm tra chỉ mục (Index Tracking)",
-      description: "Submit URL và theo dõi trạng thái index Google",
+      name: "Theo dõi index",
+      description: "Kiểm tra URL đã được Google lập chỉ mục",
       total: totalIndexingCount,
       done: indexedUrls.length,
       pending: unindexedUrls.length,
@@ -502,8 +510,8 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
     {
       key: "backlinks",
       icon: "🔗",
-      name: "Liên kết Backlink (Off-page)",
-      description: "Xây dựng domain uy tín và anchor text trỏ về",
+      name: "Backlink",
+      description: "Các liên kết trỏ về website",
       total: totalBacklinksCount,
       done: liveBacklinks.length,
       pending: pendingBacklinks.length,
@@ -516,13 +524,13 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
     {
       key: "worklogs",
       icon: "⏱️",
-      name: "Nhật ký làm việc (Daily Worklogs)",
-      description: "Ghi nhận công việc chi tiết hàng ngày và giờ làm",
+      name: "Nhật ký công việc",
+      description: "Công việc và thời gian đã ghi nhận",
       total: totalWorklogsCount,
       done: totalWorklogsCount,
       pending: 0,
       unit: "nhật ký",
-      doneLabel: `${hours}h xong`,
+      doneLabel: "đã ghi nhận",
       pendingLabel: "",
       percentage: 100,
       owners: getFieldOwners(worklogRows),
@@ -533,8 +541,8 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
     taskBreakdownRows.push({
       key: "onpage",
       icon: "📄",
-      name: "On-page Checklist",
-      description: "Chấm điểm tiêu chuẩn On-page các trang đích",
+      name: "Kiểm tra on-page",
+      description: "Rà soát nội dung và thiết lập từng trang",
       total: onpageRows.length,
       done: onpageRows.length,
       pending: 0,
@@ -551,8 +559,8 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
     taskBreakdownRows.push({
       key: "entities",
       icon: "🏢",
-      name: "Entity SEO & Thương hiệu",
-      description: "Thiết lập profile social, thư mục và NAP",
+      name: "Hồ sơ doanh nghiệp",
+      description: "Cập nhật thông tin doanh nghiệp trên các nền tảng",
       total: entityRows.length,
       done: verifiedEntities.length,
       pending: entityRows.length - verifiedEntities.length,
@@ -569,8 +577,8 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
     taskBreakdownRows.push({
       key: "seeding",
       icon: "📣",
-      name: "Seeding & Phân phối",
-      description: "Bài chia sẻ diễn đàn, hội nhóm và mạng xã hội",
+      name: "Chia sẻ nội dung",
+      description: "Bài đã chia sẻ trên diễn đàn và mạng xã hội",
       total: seedingRows.length,
       done: liveSeeding.length,
       pending: seedingRows.length - liveSeeding.length,
@@ -602,7 +610,7 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
   const metrics = [
     ["Organic clicks", allRankings.length ? formatNumber(clicks) : "—"], ["Impressions", allRankings.length ? formatNumber(impressions) : "—"], ["CTR", allRankings.length ? `${ctr.toFixed(2)}%` : "—"], ["Vị trí trung bình", avgPosition ? avgPosition.toFixed(1) : "—"],
     ["Từ khóa Top 3", rankings.filter(row => asNumber(row.position) > 0 && asNumber(row.position) <= 3).length], ["Từ khóa Top 10", rankings.filter(row => asNumber(row.position) > 0 && asNumber(row.position) <= 10).length], ["GA4 Sessions", gaStats.sessions === null ? "—" : formatNumber(gaSessions)], ["GA4 Users", gaStats.users === null ? "—" : formatNumber(gaUsers)], ["GA4 Lượt xem trang", gaStats.views === null ? "—" : formatNumber(gaViews)], ["Chuyển đổi", gaStats.conversions === null ? "—" : formatNumber(gaConversions)],
-    ["Tổng task triển khai", `${grandTotalWorkItems} task`],
+    ["Tổng mục công việc", `${grandTotalWorkItems} mục`],
     ["Task hoàn thành", `${completedTasks.length} / ${totalTasksCount || completedTasks.length}`],
     ["Bài viết xuất bản", `${publishedContent.length} / ${totalContentCount || publishedContent.length}`],
     ["Lỗi kỹ thuật đã sửa", `${doneAudits.length} / ${totalAuditsCount || doneAudits.length}`],
@@ -616,7 +624,7 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
   const getSectionBadge = (key: SectionKey): string => {
     switch (key) {
       case "overview":
-        return grandTotalWorkItems > 0 ? `${grandTotalWorkItems} task & hạng mục` : "Tổng quan";
+        return grandTotalWorkItems > 0 ? `${grandTotalWorkItems} mục` : "Tổng quan";
       case "gsc":
         return allRankings.length > 0 ? `${formatNumber(allRankings.length)} từ khóa GSC` : "";
       case "analytics":
@@ -832,21 +840,21 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
   const newReport = () => {
     const period = monthPeriod(selectedMonth);
     const currentSnapshot = rangeData(data, period.from, period.to);
-    setMode("edit"); setEditingId(""); setLoadedSnapshot(null); setLoadedComparison(null); setPreviousVersionId(""); setKpiTargets({}); setFrom(period.from); setTo(period.to); setTitle(`Báo cáo SEO tháng ${selectedMonth.slice(5)}/${selectedMonth.slice(0, 4)}`); setAuthor(settings.owner); setSections(normalizeSections(sectionDefaults)); setSummary(suggestedSummary(currentSnapshot)); setMonthlyReview(suggestedSummary(currentSnapshot)); setNextPlan(suggestedPlan(currentSnapshot)); setNotes(""); setSignatures(emptySignatures(settings.owner)); setGscImages([]); setAnalyticsImages([]); setCreatedAt(new Date().toISOString());
+    setMode("edit"); setEditingId(""); setLoadedSnapshot(null); setPreviousVersionId(""); setKpiTargets({}); setFrom(period.from); setTo(period.to); setTitle(`Báo cáo SEO tháng ${selectedMonth.slice(5)}/${selectedMonth.slice(0, 4)}`); setAuthor(settings.owner); setSections(normalizeSections(sectionDefaults)); setSummary(suggestedSummary(currentSnapshot)); setMonthlyReview(suggestedSummary(currentSnapshot)); setNextPlan(suggestedPlan(currentSnapshot)); setNotes(""); setSignatures(emptySignatures(settings.owner)); setGscImages([]); setAnalyticsImages([]); setCreatedAt(new Date().toISOString());
   };
   const refreshAsNewVersion = () => {
-    setPreviousVersionId(editingId || previousVersionId); setEditingId(""); setLoadedSnapshot(null); setLoadedComparison(null); setCreatedAt(new Date().toISOString());
+    setPreviousVersionId(editingId || previousVersionId); setEditingId(""); setLoadedSnapshot(null); setCreatedAt(new Date().toISOString());
     setTitle(current => `${current} (cập nhật)`); setSignatures(current => ({ freelancer: { ...current.freelancer, verified: false, signedAt: "" }, reviewer: { ...current.reviewer, verified: false, signedAt: "" } }));
     notify("Đang tạo phiên bản mới từ dữ liệu hiện tại. Báo cáo đã lưu được giữ nguyên; hãy kiểm tra nhận xét và ảnh trước khi lưu.");
   };
   const selectReportMonth = (month: string) => {
-    const period = monthPeriod(month); onMonthChange(month); setFrom(period.from); setTo(period.to); setLoadedSnapshot(null); setLoadedComparison(null);
+    const period = monthPeriod(month); onMonthChange(month); setFrom(period.from); setTo(period.to); setLoadedSnapshot(null);
   };
   const saveReport = async () => {
     if (!validPeriod({ from, to })) { notify("Khoảng ngày báo cáo không hợp lệ."); return; }
     const now = new Date().toISOString();
     const existing = savedReports.find(item => item.id === editingId);
-    const report: SavedSeoReport = { id: editingId || uid(), title: title.trim() || "Báo cáo SEO", from, to, author: author.trim() || settings.owner, createdAt: editingId ? createdAt : now, updatedAt: now, sections: normalizeSections(sections), summary, monthlyReview, nextPlan, notes, snapshot, comparisonSnapshot: priorSnapshot, kpiTargets, previousVersionId, signatures, gscImages, analyticsImages, shareToken: existing?.shareToken, publishedAt: existing?.shareToken ? now : existing?.publishedAt };
+    const report: SavedSeoReport = { id: editingId || uid(), title: title.trim() || "Báo cáo SEO", from, to, author: author.trim() || settings.owner, createdAt: editingId ? createdAt : now, updatedAt: now, sections: normalizeSections(sections), summary, monthlyReview, nextPlan, notes, snapshot, comparisonSnapshot: priorSnapshot, comparisonReport, kpiTargets, previousVersionId, signatures, gscImages, analyticsImages, shareToken: existing?.shareToken, publishedAt: existing?.shareToken ? now : existing?.publishedAt };
     const next = editingId ? savedReports.map(item => item.id === editingId ? report : item) : [report, ...savedReports];
     if (report.shareToken) {
       const payload: PublicSeoReportPayload = { report: { ...report, publishedAt: now }, settings };
@@ -856,7 +864,7 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
     onSaveReports(next); setEditingId(report.id); setCreatedAt(report.createdAt); setLoadedSnapshot(report.snapshot); setLoadedComparison(report.comparisonSnapshot || {}); setMode("list"); notify(editingId ? "Đã cập nhật bản báo cáo" : "Đã lưu bản báo cáo mới");
   };
   const loadReport = (report: SavedSeoReport) => {
-    setLoadedComparison(report.comparisonSnapshot || {}); setKpiTargets(report.kpiTargets || {}); setPreviousVersionId(report.previousVersionId || "");
+    setComparisonReport(report.comparisonReport); setLoadedComparison(report.comparisonSnapshot || {}); setKpiTargets(report.kpiTargets || {}); setPreviousVersionId(report.previousVersionId || "");
     setMode("edit"); setEditingId(report.id); setTitle(report.title); setFrom(report.from); setTo(report.to); setAuthor(report.author); setSections(normalizeSections(report.sections)); setSummary(report.summary); setMonthlyReview(report.monthlyReview || report.summary); setNextPlan(report.nextPlan); setNotes(report.notes); setSignatures(report.signatures || emptySignatures(report.author || settings.owner)); setGscImages(normalizeImages(report.gscImages)); setAnalyticsImages(normalizeImages(report.analyticsImages)); setCreatedAt(report.createdAt); setLoadedSnapshot(report.snapshot); notify("Đã mở bản báo cáo để chỉnh sửa");
   };
   const deleteReport = async (id: string) => {
@@ -907,7 +915,7 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
   };
   const exportCsv = () => {
     const lines: (string | number)[][] = [[title], [settings.name, settings.domain], ["Từ ngày", from, "Đến ngày", to], ["Người lập", author], [], ["Chỉ số", "Giá trị"], ...metrics.map(item => [String(item[0]), String(item[1])]), [], ["Nhận xét tổng quan", summary], ["Nhận xét tháng này", monthlyReview], ["Kế hoạch tháng tới", nextPlan]];
-    lines.push([], ["SO SÁNH KPI", "Kỳ trước", "Kỳ này", "Thay đổi", "Mục tiêu"]);
+    lines.push([], [comparisonCaption], ["SO SÁNH KPI", "Kỳ trước", "Kỳ này", "Thay đổi", "Mục tiêu"]);
     comparedMetrics.forEach(metric => lines.push([metric.label, metric.previous ?? "Chưa có dữ liệu", metric.value ?? "Chưa có dữ liệu", metricChange(metric.value, metric.previous, metric.kind, metric.digits).text, kpiTargets[metric.key] ?? ""]));
     const csv = "\uFEFF" + lines.map(row => row.map(value => `"${String(value).replaceAll('"', '""')}"`).join(",")).join("\n");
     const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" })); link.download = `bao-cao-seo-${from}-${to}.csv`; link.click(); URL.revokeObjectURL(link.href);
@@ -933,15 +941,8 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
 
     if (section.key === "overview") return wrapper(
       <>
-        <ComparisonTable metrics={comparedMetrics} period={{ from, to }} targets={kpiTargets} />
-        <div className="report-kpi-grid">
-          {metrics.map(([label, value]) => (
-            <div key={String(label)}>
-              <span>{label}</span>
-              <strong>{value}</strong>
-            </div>
-          ))}
-        </div>
+        {comparisonReport && <p className="comparison-period">{comparisonCaption}</p>}
+        <MetricStrip metrics={comparedMetrics} label="Các chỉ số chính" showComparison={Boolean(comparisonReport)} />
         <div className="report-narrative">
           {summary.split("\n").map((line, index) => <p key={index}>{line || <br />}</p>)}
         </div>
@@ -951,15 +952,15 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
           <div className="report-field-breakdown-head">
             <div>
               <h3 className="report-field-breakdown-title">
-                <span>📊</span> Thống kê chi tiết khối lượng công việc theo trường thông tin
+                Công việc trong kỳ
               </h3>
               <p className="report-field-breakdown-desc">
-                Tổng hợp số lượng task, tỷ lệ hoàn thành và nhân sự phụ trách trên các trường phân hệ SEO trong kỳ
+                Số lượng, kết quả và người phụ trách từng nhóm công việc.
               </p>
             </div>
             <div className="report-field-grand-badge">
-              <span>TỔNG CỘNG KHỐI LƯỢNG</span>
-              <strong>{grandTotalWorkItems} task & hạng mục</strong>
+              <span>Tổng số mục</span>
+              <strong>{grandTotalWorkItems} mục</strong>
             </div>
           </div>
 
@@ -968,11 +969,11 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
               <thead>
                 <tr>
                   <th style={{ width: "38px", textAlign: "center" }}>STT</th>
-                  <th>Trường thông tin / Phân hệ SEO</th>
-                  <th style={{ textAlign: "center" }}>Tổng số lượng</th>
+                  <th>Nhóm công việc</th>
+                  <th style={{ textAlign: "center" }}>Số lượng</th>
                   <th>Đã hoàn thành</th>
-                  <th>Đang làm / Chờ xử lý</th>
-                  <th style={{ width: "160px" }}>Tiến độ hoàn thành</th>
+                  <th>Còn lại</th>
+                  <th style={{ width: "160px" }}>Tỷ lệ hoàn thành</th>
                   <th>Phụ trách</th>
                 </tr>
               </thead>
@@ -982,7 +983,7 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
                     <td style={{ textAlign: "center", color: "#8d99ab", fontWeight: 700 }}>{idx + 1}</td>
                     <td>
                       <div className="report-field-name">
-                        <span className="report-field-icon">{item.icon}</span>
+
                         <div>
                           <b>{item.name}</b>
                           <small>{item.description}</small>
@@ -1033,10 +1034,10 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
               <tfoot>
                 <tr className="report-table-footer-total">
                   <td colSpan={2}>
-                    <b>TỔNG CỘNG KHỐI LƯỢNG CÔNG VIỆC THỰC HIỆN</b>
+                    <b>Tổng cộng</b>
                   </td>
                   <td style={{ textAlign: "center", fontWeight: 900, fontSize: "15px", color: "#1e3a8a" }}>
-                    {grandTotalWorkItems} task
+                    {grandTotalWorkItems} mục
                   </td>
                   <td>
                     <b style={{ color: "#059669" }}>{grandTotalCompleted} hoàn tất</b>
@@ -1069,7 +1070,7 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
       const gscImgs = normalizeImages(gscImages);
       return wrapper(
         <>
-          <MetricStrip metrics={comparedMetrics.filter(metric => metric.key.startsWith("rankings."))} label="GSC so với tháng trước" />
+          <MetricStrip metrics={comparedMetrics.filter(metric => metric.key.startsWith("rankings."))} label="Chỉ số GSC" showComparison={Boolean(comparisonReport)} />
           {gscImgs.length > 0 && (
             <div className="report-metric-gallery">
               <div className="report-metric-gallery-header">
@@ -1111,7 +1112,7 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
       }));
       return wrapper(
         <>
-          <MetricStrip metrics={comparedMetrics.filter(metric => metric.key.startsWith("analytics."))} label="GA4 so với tháng trước" />
+          <MetricStrip metrics={comparedMetrics.filter(metric => metric.key.startsWith("analytics."))} label="Chỉ số GA4" showComparison={Boolean(comparisonReport)} />
           {gaImgs.length > 0 && (
             <div className="report-metric-gallery">
               <div className="report-metric-gallery-header">
@@ -1324,7 +1325,7 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
   if (mode === "list") return <div className="report-builder">
     <section className="page-heading"><div><p className="eyebrow">SEO REPORT LIBRARY</p><h2>Báo cáo SEO</h2><p className="muted">Quản lý các báo cáo đã tạo, mở trang xem hoặc sao chép đường dẫn gửi khách hàng.</p></div><button className="primary" onClick={newReport}>＋ Tạo báo cáo mới</button></section>
     <MonthPicker month={selectedMonth} onChange={onMonthChange} />
-    <div className="panel kpi-live-panel"><ComparisonTable metrics={reportComparison(reportRange(data, monthPeriod(selectedMonth)), reportRange(data, previousPeriod(monthPeriod(selectedMonth))), monthPeriod(selectedMonth))} period={monthPeriod(selectedMonth)} /></div>
+    {comparisonPicker}<div className="panel kpi-live-panel"><MetricStrip metrics={compareReportSnapshots(reportRange(data, monthPeriod(selectedMonth)), comparisonReport ? priorSnapshot : undefined)} label="Các chỉ số chính" showComparison={Boolean(comparisonReport)} /></div>
     {savedReports.length ? <section className="report-library">{savedReports.map(report => <article className="report-library-card" key={report.id}><div className="report-library-icon">SEO</div><div className="report-library-copy"><span className={report.shareToken ? "report-publish-status published" : "report-publish-status"}>{report.shareToken ? "Đã có link chia sẻ" : "Bản nội bộ"}</span><h3>{report.title}</h3><p>{formatDate(report.from)} – {formatDate(report.to)}</p><small>Người lập: {report.author} · Cập nhật {formatDateTime(report.updatedAt, settings.timezone)}</small></div><div className="report-library-actions"><button className="primary" disabled={openingReportId === report.id} onClick={() => void publishReport(report)}>{openingReportId === report.id ? "Đang mở…" : "Xem"}</button><button className="secondary" onClick={() => loadReport(report)}>Sửa</button><button className="secondary" onClick={() => void publishReport(report, true)}>Sao chép link</button><button className="danger-button" onClick={() => void deleteReport(report.id)}>Xóa</button></div></article>)}</section> : <section className="report-library-empty panel"><div className="report-library-icon">SEO</div><h3>Chưa có báo cáo nào</h3><p>Tạo báo cáo đầu tiên, chọn nội dung cần hiển thị rồi lưu lại để xem hoặc gửi khách hàng.</p><button className="primary" onClick={newReport}>Tạo báo cáo đầu tiên</button></section>}
   </div>;
 
@@ -1334,8 +1335,8 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
     {loadedSnapshot ? <p className="period-notice print-hide">Đang dùng dữ liệu đã chốt của báo cáo. <button className="secondary" onClick={refreshAsNewVersion}>Lấy dữ liệu mới · Tạo phiên bản mới</button></p> : <MonthPicker month={from.slice(0, 7)} onChange={selectReportMonth} />}
     {!loadedSnapshot && missingDateCount > 0 && <details className="period-notice print-hide"><summary>Chưa xác định kỳ: {missingDateCount} bản ghi công việc thiếu ngày</summary><p>Bổ sung ngày hoàn thành, ngày đăng hoặc ngày thực hiện để đưa các bản ghi này vào KPI đúng tháng.</p></details>}
     <section className="report-composer panel print-hide">
-      <ComparisonTable metrics={comparedMetrics} period={{ from, to }} title="Mục tiêu và mức tăng giảm KPI" targets={kpiTargets} onTargetsChange={setKpiTargets} />
-      <div className="report-fields"><label className="wide"><span>Tên báo cáo</span><input value={title} onChange={event => setTitle(event.target.value)} /></label><label><span>Từ ngày</span><input type="date" disabled={Boolean(loadedSnapshot)} value={from} onChange={event => { setFrom(event.target.value); setLoadedComparison(null); }} /></label><label><span>Đến ngày</span><input type="date" disabled={Boolean(loadedSnapshot)} value={to} onChange={event => { setTo(event.target.value); setLoadedComparison(null); }} /></label><label><span>Người lập báo cáo</span><input value={author} onChange={event => setAuthor(event.target.value)} /></label></div>
+      {comparisonPicker}
+      <div className="report-fields"><label className="wide"><span>Tên báo cáo</span><input value={title} onChange={event => setTitle(event.target.value)} /></label><label><span>Từ ngày</span><input type="date" disabled={Boolean(loadedSnapshot)} value={from} onChange={event => { setFrom(event.target.value); }} /></label><label><span>Đến ngày</span><input type="date" disabled={Boolean(loadedSnapshot)} value={to} onChange={event => { setTo(event.target.value); }} /></label><label><span>Người lập báo cáo</span><input value={author} onChange={event => setAuthor(event.target.value)} /></label></div>
       <div className="report-editor-grid"><div><div className="report-editor-title"><h3>Nội dung báo cáo</h3><small>Bật/tắt, đổi tên và sắp xếp từng mục</small></div><div className="report-section-list">{sections.map((section, index) => <div className={section.enabled ? "enabled" : ""} key={section.key}><input aria-label={`Hiển thị ${section.title}`} type="checkbox" checked={section.enabled} onChange={event => updateSection(index, { enabled: event.target.checked })} /><input value={section.title} onChange={event => updateSection(index, { title: event.target.value })} /><button disabled={index === 0} onClick={() => moveSection(index, -1)} aria-label="Đưa mục lên">↑</button><button disabled={index === sections.length - 1} onClick={() => moveSection(index, 1)} aria-label="Đưa mục xuống">↓</button></div>)}</div></div><div className="report-copy-editors"><label><span>Nhận xét tổng quan</span><textarea value={summary} onChange={event => setSummary(event.target.value)} /></label><label><span>Nhận xét tháng này</span><textarea value={monthlyReview} onChange={event => setMonthlyReview(event.target.value)} placeholder="Đánh giá kết quả, điểm nổi bật và vấn đề trong tháng…" /></label><label><span>Kế hoạch tháng tới</span><textarea value={nextPlan} onChange={event => setNextPlan(event.target.value)} /></label><label><span>Ghi chú / đề xuất</span><textarea value={notes} onChange={event => setNotes(event.target.value)} placeholder="Đề xuất ngân sách, nội dung cần khách hàng duyệt, rủi ro…" /></label></div></div>
 
       <section className="report-image-uploader-section" id="report-chart-images">

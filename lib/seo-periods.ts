@@ -186,3 +186,28 @@ export function reportComparison(data: Record<string, SeoRow[]>, previous: Recor
   ];
   return [...performance, ...work];
 }
+
+// Saved reports are explicit, user-selected totals, including legacy imports without period metadata.
+export function mainReportMetrics(data: Record<string, SeoRow[]>): Metric[] {
+  const gsc = gscMetrics(data.rankings || []);
+  const ga = analyticsMetrics(data.analytics || []);
+  const keywords = gscKeywordsForPeriod(data.rankings || [], { from: "1900-01-01", to: "2999-12-31" });
+  const count = (module: string, status: string) => (data[module] || []).filter(row => row.status === status).length;
+  const entries: [string, string, MetricValue, Metric["kind"]?][] = [
+    ["rankings.clicks", "Organic clicks", gsc.clicks], ["rankings.impressions", "Impressions", gsc.impressions],
+    ["rankings.ctr", "CTR", gsc.ctr, "percent"], ["rankings.position", "Vị trí trung bình", gsc.position, "position"],
+    ["rankings.top3", "Từ khóa Top 3", keywords.length ? keywords.filter(row => Number(row.position) > 0 && Number(row.position) <= 3).length : null],
+    ["rankings.top10", "Từ khóa Top 10", keywords.length ? keywords.filter(row => Number(row.position) > 0 && Number(row.position) <= 10).length : null],
+    ["analytics.sessions", "GA4 Sessions", ga.sessions], ["analytics.users", "GA4 Users", ga.users],
+    ["analytics.views", "GA4 Lượt xem trang", ga.views], ["analytics.conversions", "Chuyển đổi", ga.conversions],
+    ["work.total", "Tổng mục công việc", ["tasks", "content", "audits", "indexing", "backlinks", "worklogs"].reduce((total, module) => total + (data[module] || []).length, 0)],
+    ["tasks.done", "Công việc hoàn thành", count("tasks", "Done")], ["content.published", "Bài đã đăng", count("content", "Published")],
+    ["audits.done", "Lỗi đã sửa", count("audits", "Done")], ["worklogs.hours", "Giờ làm việc", sum(data.worklogs || [], "hours")],
+  ];
+  return entries.map(([key, label, value, kind]) => ({ key, label, value, kind, previous: null, ...(key === "worklogs.hours" ? { digits: 1 } : {}) }));
+}
+
+export function compareReportSnapshots(current: Record<string, SeoRow[]>, baseline?: Record<string, SeoRow[]>): Metric[] {
+  const previous = new Map((baseline ? mainReportMetrics(baseline) : []).map(metric => [metric.key, metric.value]));
+  return mainReportMetrics(current).map(metric => ({ ...metric, previous: previous.get(metric.key) ?? null }));
+}

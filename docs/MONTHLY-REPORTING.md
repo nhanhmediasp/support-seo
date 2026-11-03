@@ -33,3 +33,11 @@ Báo cáo đã lưu giữ snapshot kỳ hiện tại, snapshot kỳ so sánh, m�
 `npm test` kiểm tra tính tăng giảm, lịch tháng/năm nhuận, độ phủ kỳ, chỉ số không cộng được, chống trùng, thay thế theo kỳ, bảo toàn dữ liệu ngoài kỳ và snapshot. `npm run check` chạy TypeScript và build production.
 
 Tham chiếu định nghĩa nguồn: [GSC Search Analytics API](https://developers.google.com/webmaster-tools/v1/searchanalytics/query), [GA4 dimensions and metrics](https://developers.google.com/analytics/devguides/reporting/data/v1/api-schema).
+
+## So sánh bằng báo cáo đã lưu
+
+Trong thư viện hoặc trình sửa báo cáo, chọn **So sánh với báo cáo**. Các ô tổng quan hiển thị số liệu hiện tại, số liệu báo cáo được chọn và mức tăng giảm. Chỉ đối chiếu 15 chỉ số chính trong phần tổng quan, gồm GSC, thứ hạng Top 3/10, traffic GA4 và kết quả công việc; không hiển thị lại bảng KPI dài phía trên.
+
+Chế độ này dùng trực tiếp snapshot của hai báo cáo, kể cả dữ liệu nhập cũ chưa có metadata kỳ. Tên và ngày của báo cáo so sánh được ghi rõ; người dùng chọn các báo cáo có phạm vi và bộ lọc phù hợp. Không tự quy đổi báo cáo khác độ dài thành mức tăng theo tháng. Chỉ số Google bị thiếu vẫn là thiếu; số 0 có trong báo cáo vẫn được giữ.
+
+Lựa chọn và bản sao dữ liệu đối chiếu được lưu cùng báo cáo, nên mở lại hoặc xóa báo cáo nguồn không làm mất số liệu so sánh đã lưu. Chọn **Không so sánh** để chỉ hiển thị kết quả hiện tại. Các màn GSC/GA4 riêng vẫn dùng so sánh theo kỳ như trước.
