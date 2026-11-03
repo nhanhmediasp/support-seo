@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { google } from "googleapis";
+import { google, searchconsole_v1 } from "googleapis";
+import { validPeriod } from "../../../../lib/seo-periods";
 import { createClient } from "@supabase/supabase-js";
 import { getGoogleOAuthClient, isGoogleConfigured } from "../../../../lib/google-search-console";
 
@@ -23,13 +24,21 @@ export async function GET(request: NextRequest) {
   const startDate = request.nextUrl.searchParams.get("startDate");
   const endDate = request.nextUrl.searchParams.get("endDate");
   if (!siteUrl || !startDate || !endDate) return NextResponse.json({ error: "Thiếu siteUrl, startDate hoặc endDate" }, { status: 400 });
+  if (!validPeriod({ from: startDate, to: endDate }) || Date.parse(endDate) - Date.parse(startDate) > 366 * 86400000) return NextResponse.json({ error: "Khoảng ngày không hợp lệ hoặc vượt quá 366 ngày" }, { status: 400 });
   try {
     const client = getGoogleOAuthClient();
     if (refreshToken) client.setCredentials({ refresh_token: refreshToken });
     else client.setCredentials({ access_token: accessToken });
     const searchconsole = google.searchconsole({ version: "v1", auth: client });
-    const result = await searchconsole.searchanalytics.query({ siteUrl, requestBody: { startDate, endDate, dimensions: ["query", "page"], rowLimit: 25000, dataState: "final" } });
-    return NextResponse.json({ siteUrl, startDate, endDate, rows: result.data.rows || [] });
+    const summary = await searchconsole.searchanalytics.query({ siteUrl, requestBody: { startDate, endDate, dimensions: ["date"], rowLimit: 25000, dataState: "final", type: "web" } });
+    const rows: searchconsole_v1.Schema$ApiDataRow[] = [];
+    for (let page = 0; page < 8; page += 1) {
+      const result = await searchconsole.searchanalytics.query({ siteUrl, requestBody: { startDate, endDate, dimensions: ["query", "page"], rowLimit: 25000, startRow: page * 25000, dataState: "final", type: "web" } });
+      const batch = result.data.rows || [];
+      rows.push(...batch);
+      if (batch.length < 25000) return NextResponse.json({ siteUrl, startDate, endDate, rows, summaryRows: summary.data.rows || [] });
+    }
+    return NextResponse.json({ error: "Dữ liệu quá lớn để nhập an toàn. Hãy chọn khoảng ngày ngắn hơn." }, { status: 422 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Không lấy được dữ liệu Search Console";
     return NextResponse.json({ error: message }, { status: 502 });

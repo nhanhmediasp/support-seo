@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase, supabaseConfigured } from "../lib/supabase";
+import { analyticsMetrics, gscMetrics, gscKeywordsForPeriod, metricChange, monthPeriod, previousPeriod, reportComparison, reportRange, validPeriod, vietnamToday, workDate } from "../lib/seo-periods";
+import { ComparisonTable, MetricStrip, MonthPicker } from "./period-comparison";
 
 type Row = Record<string, string | number | boolean> & { id: string };
 type ReportData = Record<string, Row[]>;
@@ -30,6 +32,9 @@ export type SavedSeoReport = {
   nextPlan: string;
   notes: string;
   snapshot: ReportData;
+  comparisonSnapshot?: ReportData;
+  kpiTargets?: Record<string, number>;
+  previousVersionId?: string;
   signatures?: ReportSignatures;
   shareToken?: string;
   publishedAt?: string;
@@ -106,8 +111,7 @@ export const normalizeSections = (source: SectionConfig[]): SectionConfig[] => {
 
 const placeAnalyticsAfterGsc = normalizeSections;
 
-const today = () => new Date().toISOString().slice(0, 10);
-const firstDayOfMonth = () => `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-01`;
+const today = vietnamToday;
 const uid = () => `REPORT-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
 const emptySignatures = (owner: string): ReportSignatures => ({
   freelancer: { name: owner, role: "SEO Freelancer", imageUrl: "", signedAt: "", verified: false },
@@ -115,15 +119,9 @@ const emptySignatures = (owner: string): ReportSignatures => ({
 });
 const asText = (value: unknown) => String(value ?? "");
 const asNumber = (value: unknown) => Number(value || 0);
-const gscKeywordRows = (rows: Row[]) => rows.filter(row => row.gscSummary !== true);
 const gscStats = (rows: Row[]) => {
-  const summaryRows = rows.filter(row => row.gscSummary === true);
-  const performance = summaryRows.length ? summaryRows : gscKeywordRows(rows);
-  const clicks = performance.reduce((sum, row) => sum + asNumber(row.clicks), 0);
-  const impressions = performance.reduce((sum, row) => sum + asNumber(row.impressions), 0);
-  const positionWeight = performance.reduce((sum, row) => sum + asNumber(row.position) * Math.max(1, asNumber(row.impressions)), 0);
-  const totalWeight = performance.reduce((sum, row) => sum + Math.max(1, asNumber(row.impressions)), 0);
-  return { clicks, impressions, ctr: impressions ? clicks / impressions * 100 : 0, position: totalWeight ? positionWeight / totalWeight : 0 };
+  const stats = gscMetrics(rows);
+  return { clicks: stats.clicks ?? 0, impressions: stats.impressions ?? 0, ctr: stats.ctr ?? 0, position: stats.position ?? 0 };
 };
 const formatNumber = (value: number) => new Intl.NumberFormat("vi-VN").format(value);
 const formatMoney = (value: number) => new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(value);
@@ -138,32 +136,12 @@ const formatDateTime = (value: string, timezone: string) => {
 const imageLinks = (value: unknown) => asText(value).split(/\r?\n/).map(link => link.trim()).filter(link => /^https?:\/\//i.test(link));
 
 function rangeData(data: ReportData, from: string, to: string): ReportData {
-  const inRange = (value: unknown) => { const date = asText(value).slice(0, 10); return Boolean(date && date >= from && date <= to); };
-  return {
-    rankings: (data.rankings || []).filter(row => inRange(row.date)),
-    analytics: (data.analytics || []).filter(row => inRange(row.date)),
-    tasks: (data.tasks || []).filter(row => (!row.completedDate && !row.startDate) || inRange(row.completedDate || row.startDate)),
-    worklogs: (data.worklogs || []).filter(row => inRange(row.date || row.occurredAt)),
-    content: (data.content || []).filter(row => !row.publishDate || inRange(row.publishDate)),
-    audits: (data.audits || []).filter(row => (!row.completed && !row.found && !row.due) || inRange(row.completed || row.found || row.due)),
-    indexing: (data.indexing || []).filter(row => (!row.checked && !row.submitted && !row.created) || inRange(row.checked || row.submitted || row.created)),
-    backlinks: (data.backlinks || []).filter(row => (!row.placed && !row.checked) || inRange(row.placed || row.checked)),
-    expenses: (data.expenses || []).filter(row => inRange(row.date)),
-    onpage: (data.onpage || []).filter(row => !row.checked || inRange(row.checked)),
-    entities: (data.entities || []).filter(row => !row.updated || inRange(row.updated)),
-    seeding: (data.seeding || []).filter(row => (!row.posted && !row.checked) || inRange(row.posted || row.checked)),
-  };
+  return reportRange(data, { from, to });
 }
 
 function suggestedSummary(snapshot: ReportData) {
   const { clicks, impressions } = gscStats(snapshot.rankings || []);
-  const analytics = snapshot.analytics || [];
-  const gaOverview = analytics.find(row => row.channel === "Tổng quan");
-  const gaChannelRows = analytics.filter(row => row.channel !== "Tổng quan" && row.channel !== "Trang xem nhiều" && !row.page);
-  const gaPageRows = analytics.filter(row => row.channel === "Trang xem nhiều" || (row.page && asNumber(row.views) > 0));
-  const sessions = gaOverview ? asNumber(gaOverview.sessions) : gaChannelRows.reduce((sum, row) => sum + asNumber(row.sessions), 0);
-  const users = gaOverview ? asNumber(gaOverview.users) : gaChannelRows.reduce((sum, row) => sum + asNumber(row.users), 0);
-  const views = gaOverview ? asNumber(gaOverview.views) : gaPageRows.reduce((sum, row) => sum + asNumber(row.views), 0);
+  const { sessions, users, views } = analyticsMetrics(snapshot.analytics || []);
   const tasks = snapshot.tasks || [];
   const done = tasks.filter(row => asText(row.status) === "Done").length;
   const published = (snapshot.content || []).filter(row => asText(row.status) === "Published").length;
@@ -174,7 +152,9 @@ function suggestedSummary(snapshot: ReportData) {
   const userText = users ? ` (${formatNumber(users)} người dùng)` : "";
   const viewsText = views ? `, ${formatNumber(views)} lượt xem` : "";
   const taskText = totalTasks > 0 ? `hoàn thành ${done}/${totalTasks} công việc SEO` : `hoàn thành ${done} công việc SEO`;
-  return `Trong kỳ, website ghi nhận ${formatNumber(clicks)} lượt nhấp, ${formatNumber(impressions)} lượt hiển thị tự nhiên từ Google Search Console và ${formatNumber(sessions)} phiên truy cập${userText}${viewsText} theo Google Analytics. Đội ngũ đã ${taskText}, xuất bản ${published} nội dung mới, xử lý ${fixed} hạng mục kỹ thuật, xác nhận ${indexed} URL đã index và duy trì ${liveLinks} backlink hoạt động. Toàn bộ thống kê chi tiết theo từng phân hệ công việc và số liệu hiệu suất được trình bày ở các phần bên dưới.`;
+  const gscText = snapshot.rankings?.length ? `${formatNumber(clicks)} lượt nhấp, ${formatNumber(impressions)} lượt hiển thị tự nhiên từ Google Search Console` : "chưa có dữ liệu Google Search Console";
+  const gaText = sessions === null ? "chưa có dữ liệu phiên truy cập GA4" : `${formatNumber(sessions)} phiên truy cập${userText}${viewsText} theo Google Analytics`;
+  return `Trong kỳ, website ghi nhận ${gscText}; ${gaText}. Đội ngũ đã ${taskText}, xuất bản ${published} nội dung mới, xử lý ${fixed} hạng mục kỹ thuật, xác nhận ${indexed} URL đã index và duy trì ${liveLinks} backlink hoạt động. Toàn bộ thống kê chi tiết theo từng phân hệ công việc và số liệu hiệu suất được trình bày ở các phần bên dưới.`;
 }
 
 function suggestedPlan(snapshot: ReportData) {
@@ -361,10 +341,10 @@ function SignatureBlock({ signatures, timezone }: { signatures: ReportSignatures
   return <section className="report-signature-section" id="report-signatures"><div className="report-section-heading"><span>✓</span><h2>Xác nhận & chữ ký</h2></div><div className="report-signature-grid">{items.map(([party, signature]) => <div className="report-signature-card" key={party}><span className="report-signature-role">{signature.role}</span><div className="report-signature-image">{signature.imageUrl ? <img src={signature.imageUrl} alt={`Chữ ký ${signature.name || signature.role}`} /> : <span>Chưa tải chữ ký</span>}</div><strong>{signature.name || "Chưa cập nhật tên"}</strong>{signature.verified && signature.signedAt && signature.name && signature.imageUrl ? <div className="report-signature-verified"><i>✓</i><span>Đã xác nhận · {formatDateTime(signature.signedAt, timezone)}</span></div> : <small>Chưa xác nhận ký hoàn tất</small>}</div>)}</div></section>;
 }
 
-export default function ReportBuilder({ data, settings, savedReports = [], onSaveReports = () => undefined, notify = () => undefined, onNavigate = () => undefined, projectId = "", viewOnlyReport }: { data: ReportData; settings: ReportSettings; savedReports?: SavedSeoReport[]; onSaveReports?: (reports: SavedSeoReport[]) => void; notify?: (message: string) => void; onNavigate?: (page: string) => void; projectId?: string; viewOnlyReport?: SavedSeoReport }) {
+export default function ReportBuilder({ data, settings, savedReports = [], onSaveReports = () => undefined, notify = () => undefined, onNavigate = () => undefined, projectId = "", viewOnlyReport, selectedMonth = today().slice(0, 7), onMonthChange = () => undefined }: { data: ReportData; settings: ReportSettings; savedReports?: SavedSeoReport[]; onSaveReports?: (reports: SavedSeoReport[]) => void; notify?: (message: string) => void; onNavigate?: (page: string) => void; projectId?: string; viewOnlyReport?: SavedSeoReport; selectedMonth?: string; onMonthChange?: (month: string) => void }) {
   const [mode, setMode] = useState<"list" | "edit">(viewOnlyReport ? "edit" : "list");
-  const [from, setFrom] = useState(viewOnlyReport?.from || firstDayOfMonth());
-  const [to, setTo] = useState(viewOnlyReport?.to || today());
+  const [from, setFrom] = useState(viewOnlyReport?.from || monthPeriod(selectedMonth).from);
+  const [to, setTo] = useState(viewOnlyReport?.to || monthPeriod(selectedMonth).to);
   const [title, setTitle] = useState(viewOnlyReport?.title || `Báo cáo SEO tháng ${new Date().getMonth() + 1}/${new Date().getFullYear()}`);
   const [author, setAuthor] = useState(viewOnlyReport?.author || settings.owner);
   const [sections, setSections] = useState(() => normalizeSections(viewOnlyReport?.sections || sectionDefaults));
@@ -386,7 +366,14 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
   const [createdAt, setCreatedAt] = useState(viewOnlyReport?.createdAt || new Date().toISOString());
   const liveSnapshot = useMemo(() => rangeData(data, from, to), [data, from, to]);
   const [loadedSnapshot, setLoadedSnapshot] = useState<ReportData | null>(viewOnlyReport?.snapshot || null);
+  const [loadedComparison, setLoadedComparison] = useState<ReportData | null>(viewOnlyReport ? viewOnlyReport.comparisonSnapshot || {} : null);
+  const [kpiTargets, setKpiTargets] = useState<Record<string, number>>(viewOnlyReport?.kpiTargets || {});
+  const [previousVersionId, setPreviousVersionId] = useState(viewOnlyReport?.previousVersionId || "");
   const snapshot = loadedSnapshot || liveSnapshot;
+  const comparisonPeriod = previousPeriod({ from, to });
+  const priorSnapshot = loadedSnapshot ? loadedComparison || {} : rangeData(data, comparisonPeriod.from, comparisonPeriod.to);
+  const comparedMetrics = reportComparison(snapshot, priorSnapshot, { from, to });
+  const missingDateCount = Object.entries(data).filter(([module]) => !["rankings", "analytics", "changes", "personnel", "calendar"].includes(module)).reduce((total, [module, rows]) => total + rows.filter(row => !workDate(module, row)).length, 0);
 
   useEffect(() => { if (!summary) setSummary(suggestedSummary(liveSnapshot)); }, []);
   useEffect(() => { if (!monthlyReview) setMonthlyReview(suggestedSummary(liveSnapshot)); }, []);
@@ -399,20 +386,16 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
   }, [title, viewOnlyReport, mode, settings]);
 
   const allRankings = snapshot.rankings || [];
-  const rankings = gscKeywordRows(allRankings);
+  const rankings = gscKeywordsForPeriod(allRankings, { from, to });
   const { clicks, impressions, ctr, position: avgPosition } = gscStats(allRankings);
   const analytics = snapshot.analytics || [];
-  const gaOverview = analytics.find(row => row.channel === "Tổng quan");
-  const gaChannelRows = analytics.filter(row => row.channel !== "Tổng quan" && row.channel !== "Trang xem nhiều" && !row.page);
-  const gaPageRows = analytics.filter(row => row.channel === "Trang xem nhiều" || (row.page && asNumber(row.views) > 0)).sort((a, b) => asNumber(b.views) - asNumber(a.views));
-
-  const gaSessions = gaOverview ? asNumber(gaOverview.sessions) : gaChannelRows.reduce((sum, row) => sum + asNumber(row.sessions), 0);
-  const gaUsers = gaOverview ? asNumber(gaOverview.users) : gaChannelRows.reduce((sum, row) => sum + asNumber(row.users), 0);
-  const gaNewUsers = gaOverview ? asNumber(gaOverview.newUsers) : gaChannelRows.reduce((sum, row) => sum + asNumber(row.newUsers), 0);
-  const gaViews = gaOverview ? asNumber(gaOverview.views) : gaPageRows.reduce((sum, row) => sum + asNumber(row.views), 0);
-  const gaEngagedSessions = gaOverview ? asNumber(gaOverview.engagedSessions) : gaChannelRows.reduce((sum, row) => sum + asNumber(row.engagedSessions), 0);
-  const gaConversions = gaOverview ? asNumber(gaOverview.conversions) : gaChannelRows.reduce((sum, row) => sum + asNumber(row.conversions), 0);
-  const gaEngagementRate = gaSessions ? Math.min(100, gaEngagedSessions / gaSessions * 100) : analytics.length ? analytics.reduce((sum, row) => sum + asNumber(row.engagementRate), 0) / analytics.length : 0;
+  const gaStats = analyticsMetrics(analytics, { from, to });
+  const gaChannelRows = gaStats.channels;
+  const gaPageRows = [...gaStats.pages].sort((a, b) => asNumber(b.views) - asNumber(a.views));
+  const gaSessions = gaStats.sessions ?? 0;
+  const gaUsers = gaStats.users ?? 0;
+  const gaViews = gaStats.views ?? 0;
+  const gaConversions = gaStats.conversions ?? 0;
   // Modules / Fields task counts
   const tasks = snapshot.tasks || [];
   const completedTasks = tasks.filter(row => asText(row.status) === "Done");
@@ -617,8 +600,8 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
   });
   const topPages = [...pageMap.values()].sort((a, b) => asNumber(b.clicks) - asNumber(a.clicks)).slice(0, 10).map(row => ({ ...row, position: asNumber(row.position).toFixed(1), ctr: `${asNumber(row.ctr).toFixed(2)}%` }));
   const metrics = [
-    ["Organic clicks", formatNumber(clicks)], ["Impressions", formatNumber(impressions)], ["CTR", `${ctr.toFixed(2)}%`], ["Vị trí trung bình", avgPosition ? avgPosition.toFixed(1) : "—"],
-    ["Từ khóa Top 3", rankings.filter(row => asNumber(row.position) <= 3).length], ["Từ khóa Top 10", rankings.filter(row => asNumber(row.position) <= 10).length], ["GA4 Sessions", formatNumber(gaSessions)], ["GA4 Users", formatNumber(gaUsers)], ...(gaViews > 0 ? [["GA4 Lượt xem trang", formatNumber(gaViews)]] : []), ["Chuyển đổi", formatNumber(gaConversions)],
+    ["Organic clicks", allRankings.length ? formatNumber(clicks) : "—"], ["Impressions", allRankings.length ? formatNumber(impressions) : "—"], ["CTR", allRankings.length ? `${ctr.toFixed(2)}%` : "—"], ["Vị trí trung bình", avgPosition ? avgPosition.toFixed(1) : "—"],
+    ["Từ khóa Top 3", rankings.filter(row => asNumber(row.position) > 0 && asNumber(row.position) <= 3).length], ["Từ khóa Top 10", rankings.filter(row => asNumber(row.position) > 0 && asNumber(row.position) <= 10).length], ["GA4 Sessions", gaStats.sessions === null ? "—" : formatNumber(gaSessions)], ["GA4 Users", gaStats.users === null ? "—" : formatNumber(gaUsers)], ["GA4 Lượt xem trang", gaStats.views === null ? "—" : formatNumber(gaViews)], ["Chuyển đổi", gaStats.conversions === null ? "—" : formatNumber(gaConversions)],
     ["Tổng task triển khai", `${grandTotalWorkItems} task`],
     ["Task hoàn thành", `${completedTasks.length} / ${totalTasksCount || completedTasks.length}`],
     ["Bài viết xuất bản", `${publishedContent.length} / ${totalContentCount || publishedContent.length}`],
@@ -845,24 +828,35 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
     notify("Đã thêm ảnh Google Analytics từ link");
   };
 
-  const refreshSuggestions = () => { const suggestion = suggestedSummary(liveSnapshot); setSummary(suggestion); setMonthlyReview(suggestion); setNextPlan(suggestedPlan(liveSnapshot)); notify("Đã cập nhật gợi ý từ dữ liệu hiện tại"); };
+  const refreshSuggestions = () => { const suggestion = suggestedSummary(snapshot); setSummary(suggestion); setMonthlyReview(suggestion); setNextPlan(suggestedPlan(snapshot)); notify("Đã cập nhật gợi ý từ dữ liệu của bản báo cáo"); };
   const newReport = () => {
-    const currentSnapshot = rangeData(data, firstDayOfMonth(), today());
-    setMode("edit"); setEditingId(""); setLoadedSnapshot(null); setFrom(firstDayOfMonth()); setTo(today()); setTitle(`Báo cáo SEO tháng ${new Date().getMonth() + 1}/${new Date().getFullYear()}`); setAuthor(settings.owner); setSections(normalizeSections(sectionDefaults)); setSummary(suggestedSummary(currentSnapshot)); setMonthlyReview(suggestedSummary(currentSnapshot)); setNextPlan(suggestedPlan(currentSnapshot)); setNotes(""); setSignatures(emptySignatures(settings.owner)); setGscImages([]); setAnalyticsImages([]); setCreatedAt(new Date().toISOString());
+    const period = monthPeriod(selectedMonth);
+    const currentSnapshot = rangeData(data, period.from, period.to);
+    setMode("edit"); setEditingId(""); setLoadedSnapshot(null); setLoadedComparison(null); setPreviousVersionId(""); setKpiTargets({}); setFrom(period.from); setTo(period.to); setTitle(`Báo cáo SEO tháng ${selectedMonth.slice(5)}/${selectedMonth.slice(0, 4)}`); setAuthor(settings.owner); setSections(normalizeSections(sectionDefaults)); setSummary(suggestedSummary(currentSnapshot)); setMonthlyReview(suggestedSummary(currentSnapshot)); setNextPlan(suggestedPlan(currentSnapshot)); setNotes(""); setSignatures(emptySignatures(settings.owner)); setGscImages([]); setAnalyticsImages([]); setCreatedAt(new Date().toISOString());
+  };
+  const refreshAsNewVersion = () => {
+    setPreviousVersionId(editingId || previousVersionId); setEditingId(""); setLoadedSnapshot(null); setLoadedComparison(null); setCreatedAt(new Date().toISOString());
+    setTitle(current => `${current} (cập nhật)`); setSignatures(current => ({ freelancer: { ...current.freelancer, verified: false, signedAt: "" }, reviewer: { ...current.reviewer, verified: false, signedAt: "" } }));
+    notify("Đang tạo phiên bản mới từ dữ liệu hiện tại. Báo cáo đã lưu được giữ nguyên; hãy kiểm tra nhận xét và ảnh trước khi lưu.");
+  };
+  const selectReportMonth = (month: string) => {
+    const period = monthPeriod(month); onMonthChange(month); setFrom(period.from); setTo(period.to); setLoadedSnapshot(null); setLoadedComparison(null);
   };
   const saveReport = async () => {
+    if (!validPeriod({ from, to })) { notify("Khoảng ngày báo cáo không hợp lệ."); return; }
     const now = new Date().toISOString();
     const existing = savedReports.find(item => item.id === editingId);
-    const report: SavedSeoReport = { id: editingId || uid(), title: title.trim() || "Báo cáo SEO", from, to, author: author.trim() || settings.owner, createdAt: editingId ? createdAt : now, updatedAt: now, sections: normalizeSections(sections), summary, monthlyReview, nextPlan, notes, snapshot: liveSnapshot, signatures, gscImages, analyticsImages, shareToken: existing?.shareToken, publishedAt: existing?.shareToken ? now : existing?.publishedAt };
-    const next = editingId ? savedReports.map(item => item.id === editingId ? report : item) : [report, ...savedReports].slice(0, 24);
+    const report: SavedSeoReport = { id: editingId || uid(), title: title.trim() || "Báo cáo SEO", from, to, author: author.trim() || settings.owner, createdAt: editingId ? createdAt : now, updatedAt: now, sections: normalizeSections(sections), summary, monthlyReview, nextPlan, notes, snapshot, comparisonSnapshot: priorSnapshot, kpiTargets, previousVersionId, signatures, gscImages, analyticsImages, shareToken: existing?.shareToken, publishedAt: existing?.shareToken ? now : existing?.publishedAt };
+    const next = editingId ? savedReports.map(item => item.id === editingId ? report : item) : [report, ...savedReports];
     if (report.shareToken) {
       const payload: PublicSeoReportPayload = { report: { ...report, publishedAt: now }, settings };
       localStorage.setItem(`seo-public-report-${report.shareToken}`, JSON.stringify(payload));
       if (supabaseConfigured && supabase && projectId) await supabase.from("public_report_shares").upsert({ site_id: projectId, share_token: report.shareToken, payload, updated_at: now }, { onConflict: "share_token" });
     }
-    onSaveReports(next); setEditingId(report.id); setCreatedAt(report.createdAt); setLoadedSnapshot(report.snapshot); setMode("list"); notify(editingId ? "Đã cập nhật bản báo cáo" : "Đã lưu bản báo cáo mới");
+    onSaveReports(next); setEditingId(report.id); setCreatedAt(report.createdAt); setLoadedSnapshot(report.snapshot); setLoadedComparison(report.comparisonSnapshot || {}); setMode("list"); notify(editingId ? "Đã cập nhật bản báo cáo" : "Đã lưu bản báo cáo mới");
   };
   const loadReport = (report: SavedSeoReport) => {
+    setLoadedComparison(report.comparisonSnapshot || {}); setKpiTargets(report.kpiTargets || {}); setPreviousVersionId(report.previousVersionId || "");
     setMode("edit"); setEditingId(report.id); setTitle(report.title); setFrom(report.from); setTo(report.to); setAuthor(report.author); setSections(normalizeSections(report.sections)); setSummary(report.summary); setMonthlyReview(report.monthlyReview || report.summary); setNextPlan(report.nextPlan); setNotes(report.notes); setSignatures(report.signatures || emptySignatures(report.author || settings.owner)); setGscImages(normalizeImages(report.gscImages)); setAnalyticsImages(normalizeImages(report.analyticsImages)); setCreatedAt(report.createdAt); setLoadedSnapshot(report.snapshot); notify("Đã mở bản báo cáo để chỉnh sửa");
   };
   const deleteReport = async (id: string) => {
@@ -913,6 +907,8 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
   };
   const exportCsv = () => {
     const lines: (string | number)[][] = [[title], [settings.name, settings.domain], ["Từ ngày", from, "Đến ngày", to], ["Người lập", author], [], ["Chỉ số", "Giá trị"], ...metrics.map(item => [String(item[0]), String(item[1])]), [], ["Nhận xét tổng quan", summary], ["Nhận xét tháng này", monthlyReview], ["Kế hoạch tháng tới", nextPlan]];
+    lines.push([], ["SO SÁNH KPI", "Kỳ trước", "Kỳ này", "Thay đổi", "Mục tiêu"]);
+    comparedMetrics.forEach(metric => lines.push([metric.label, metric.previous ?? "Chưa có dữ liệu", metric.value ?? "Chưa có dữ liệu", metricChange(metric.value, metric.previous, metric.kind, metric.digits).text, kpiTargets[metric.key] ?? ""]));
     const csv = "\uFEFF" + lines.map(row => row.map(value => `"${String(value).replaceAll('"', '""')}"`).join(",")).join("\n");
     const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" })); link.download = `bao-cao-seo-${from}-${to}.csv`; link.click(); URL.revokeObjectURL(link.href);
   };
@@ -937,6 +933,7 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
 
     if (section.key === "overview") return wrapper(
       <>
+        <ComparisonTable metrics={comparedMetrics} period={{ from, to }} targets={kpiTargets} />
         <div className="report-kpi-grid">
           {metrics.map(([label, value]) => (
             <div key={String(label)}>
@@ -1072,12 +1069,7 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
       const gscImgs = normalizeImages(gscImages);
       return wrapper(
         <>
-          <div className="report-gsc-strip">
-            <div><span>Clicks</span><b>{formatNumber(clicks)}</b></div>
-            <div><span>Impressions</span><b>{formatNumber(impressions)}</b></div>
-            <div><span>CTR</span><b>{ctr.toFixed(2)}%</b></div>
-            <div><span>Vị trí TB</span><b>{avgPosition ? avgPosition.toFixed(1) : "—"}</b></div>
-          </div>
+          <MetricStrip metrics={comparedMetrics.filter(metric => metric.key.startsWith("rankings."))} label="GSC so với tháng trước" />
           {gscImgs.length > 0 && (
             <div className="report-metric-gallery">
               <div className="report-metric-gallery-header">
@@ -1119,14 +1111,7 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
       }));
       return wrapper(
         <>
-          <div className="report-gsc-strip">
-            <div><span>Sessions (Phiên)</span><b>{formatNumber(gaSessions)}</b></div>
-            <div><span>Total users</span><b>{formatNumber(gaUsers)}</b></div>
-            <div><span>New users</span><b>{formatNumber(gaNewUsers)}</b></div>
-            {gaViews > 0 && <div><span>Tổng lượt xem trang</span><b>{formatNumber(gaViews)}</b></div>}
-            <div><span>Engagement rate</span><b>{gaEngagementRate.toFixed(2)}%</b></div>
-            <div><span>Key events / Conversions</span><b>{formatNumber(gaConversions)}</b></div>
-          </div>
+          <MetricStrip metrics={comparedMetrics.filter(metric => metric.key.startsWith("analytics."))} label="GA4 so với tháng trước" />
           {gaImgs.length > 0 && (
             <div className="report-metric-gallery">
               <div className="report-metric-gallery-header">
@@ -1338,14 +1323,19 @@ export default function ReportBuilder({ data, settings, savedReports = [], onSav
 
   if (mode === "list") return <div className="report-builder">
     <section className="page-heading"><div><p className="eyebrow">SEO REPORT LIBRARY</p><h2>Báo cáo SEO</h2><p className="muted">Quản lý các báo cáo đã tạo, mở trang xem hoặc sao chép đường dẫn gửi khách hàng.</p></div><button className="primary" onClick={newReport}>＋ Tạo báo cáo mới</button></section>
+    <MonthPicker month={selectedMonth} onChange={onMonthChange} />
+    <div className="panel kpi-live-panel"><ComparisonTable metrics={reportComparison(reportRange(data, monthPeriod(selectedMonth)), reportRange(data, previousPeriod(monthPeriod(selectedMonth))), monthPeriod(selectedMonth))} period={monthPeriod(selectedMonth)} /></div>
     {savedReports.length ? <section className="report-library">{savedReports.map(report => <article className="report-library-card" key={report.id}><div className="report-library-icon">SEO</div><div className="report-library-copy"><span className={report.shareToken ? "report-publish-status published" : "report-publish-status"}>{report.shareToken ? "Đã có link chia sẻ" : "Bản nội bộ"}</span><h3>{report.title}</h3><p>{formatDate(report.from)} – {formatDate(report.to)}</p><small>Người lập: {report.author} · Cập nhật {formatDateTime(report.updatedAt, settings.timezone)}</small></div><div className="report-library-actions"><button className="primary" disabled={openingReportId === report.id} onClick={() => void publishReport(report)}>{openingReportId === report.id ? "Đang mở…" : "Xem"}</button><button className="secondary" onClick={() => loadReport(report)}>Sửa</button><button className="secondary" onClick={() => void publishReport(report, true)}>Sao chép link</button><button className="danger-button" onClick={() => void deleteReport(report.id)}>Xóa</button></div></article>)}</section> : <section className="report-library-empty panel"><div className="report-library-icon">SEO</div><h3>Chưa có báo cáo nào</h3><p>Tạo báo cáo đầu tiên, chọn nội dung cần hiển thị rồi lưu lại để xem hoặc gửi khách hàng.</p><button className="primary" onClick={newReport}>Tạo báo cáo đầu tiên</button></section>}
   </div>;
 
   return <div className="report-builder">
     <section className="page-heading print-hide"><div><p className="eyebrow">MONTHLY SEO REPORT BUILDER</p><h2>{editingId ? "Chỉnh sửa báo cáo" : "Tạo báo cáo mới"}</h2><p className="muted">Chọn nội dung, chỉnh sửa nhận xét và lưu báo cáo trước khi mở trang xem riêng.</p></div><div className="button-row"><button className="secondary" onClick={() => setMode("list")}>← Danh sách báo cáo</button><button className="secondary" onClick={() => document.getElementById("report-chart-images")?.scrollIntoView({ behavior: "smooth", block: "start" })}>Ảnh GSC / GA4</button><button className="secondary" onClick={exportCsv}>Xuất CSV</button></div></section>
     {(!rankings.length || !analytics.length) && <section className="report-data-notice panel print-hide"><div><b>Thiếu dữ liệu hiệu suất trong kỳ</b><p>{!rankings.length ? "Search Console chưa có dữ liệu. " : ""}{!analytics.length ? "Google Analytics chưa có dữ liệu." : ""} Bạn có thể nhập từng bản ghi hoặc tải file CSV, không cần kết nối tài khoản Google.</p></div><div className="button-row">{!rankings.length && <button className="secondary" onClick={() => onNavigate("rankings")}>Nhập dữ liệu GSC</button>}{!analytics.length && <button className="primary" onClick={() => onNavigate("analytics")}>Nhập traffic GA4</button>}</div></section>}
+    {loadedSnapshot ? <p className="period-notice print-hide">Đang dùng dữ liệu đã chốt của báo cáo. <button className="secondary" onClick={refreshAsNewVersion}>Lấy dữ liệu mới · Tạo phiên bản mới</button></p> : <MonthPicker month={from.slice(0, 7)} onChange={selectReportMonth} />}
+    {!loadedSnapshot && missingDateCount > 0 && <details className="period-notice print-hide"><summary>Chưa xác định kỳ: {missingDateCount} bản ghi công việc thiếu ngày</summary><p>Bổ sung ngày hoàn thành, ngày đăng hoặc ngày thực hiện để đưa các bản ghi này vào KPI đúng tháng.</p></details>}
     <section className="report-composer panel print-hide">
-      <div className="report-fields"><label className="wide"><span>Tên báo cáo</span><input value={title} onChange={event => setTitle(event.target.value)} /></label><label><span>Từ ngày</span><input type="date" value={from} onChange={event => { setFrom(event.target.value); setLoadedSnapshot(null); }} /></label><label><span>Đến ngày</span><input type="date" value={to} onChange={event => { setTo(event.target.value); setLoadedSnapshot(null); }} /></label><label><span>Người lập báo cáo</span><input value={author} onChange={event => setAuthor(event.target.value)} /></label></div>
+      <ComparisonTable metrics={comparedMetrics} period={{ from, to }} title="Mục tiêu và mức tăng giảm KPI" targets={kpiTargets} onTargetsChange={setKpiTargets} />
+      <div className="report-fields"><label className="wide"><span>Tên báo cáo</span><input value={title} onChange={event => setTitle(event.target.value)} /></label><label><span>Từ ngày</span><input type="date" disabled={Boolean(loadedSnapshot)} value={from} onChange={event => { setFrom(event.target.value); setLoadedComparison(null); }} /></label><label><span>Đến ngày</span><input type="date" disabled={Boolean(loadedSnapshot)} value={to} onChange={event => { setTo(event.target.value); setLoadedComparison(null); }} /></label><label><span>Người lập báo cáo</span><input value={author} onChange={event => setAuthor(event.target.value)} /></label></div>
       <div className="report-editor-grid"><div><div className="report-editor-title"><h3>Nội dung báo cáo</h3><small>Bật/tắt, đổi tên và sắp xếp từng mục</small></div><div className="report-section-list">{sections.map((section, index) => <div className={section.enabled ? "enabled" : ""} key={section.key}><input aria-label={`Hiển thị ${section.title}`} type="checkbox" checked={section.enabled} onChange={event => updateSection(index, { enabled: event.target.checked })} /><input value={section.title} onChange={event => updateSection(index, { title: event.target.value })} /><button disabled={index === 0} onClick={() => moveSection(index, -1)} aria-label="Đưa mục lên">↑</button><button disabled={index === sections.length - 1} onClick={() => moveSection(index, 1)} aria-label="Đưa mục xuống">↓</button></div>)}</div></div><div className="report-copy-editors"><label><span>Nhận xét tổng quan</span><textarea value={summary} onChange={event => setSummary(event.target.value)} /></label><label><span>Nhận xét tháng này</span><textarea value={monthlyReview} onChange={event => setMonthlyReview(event.target.value)} placeholder="Đánh giá kết quả, điểm nổi bật và vấn đề trong tháng…" /></label><label><span>Kế hoạch tháng tới</span><textarea value={nextPlan} onChange={event => setNextPlan(event.target.value)} /></label><label><span>Ghi chú / đề xuất</span><textarea value={notes} onChange={event => setNotes(event.target.value)} placeholder="Đề xuất ngân sách, nội dung cần khách hàng duyệt, rủi ro…" /></label></div></div>
 
       <section className="report-image-uploader-section" id="report-chart-images">

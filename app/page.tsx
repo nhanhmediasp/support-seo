@@ -5,6 +5,8 @@ import JSZip from "jszip";
 import { localModeAllowed, Project, supabase, supabaseConfigured } from "../lib/supabase";
 import ReportBuilder, { SavedSeoReport } from "./report-builder";
 import { CommandPalette, Donut, EmptyState, Icon, Ring } from "./ui";
+import { analyticsMetrics, comparisonMetrics, gscMetrics, gscKeywordsForPeriod, ImportPlan, monthPeriod, overlappingRows, periodLabel, planImport, rowsInPeriod, validPeriod, vietnamToday } from "../lib/seo-periods";
+import { MetricStrip, MonthPicker } from "./period-comparison";
 
 type Row = Record<string, string | number | boolean> & { id: string };
 type Field = { key: string; label: string; type?: "text" | "number" | "date" | "select" | "textarea" | "checkbox"; options?: string[]; required?: boolean };
@@ -14,7 +16,7 @@ type AppData = Record<ModuleKey, Row[]>;
 type ConfirmConfig = { eyebrow: string; title: string; description: string; confirmLabel: string; danger?: boolean; onConfirm: () => void };
 type RecordTarget = { module: ModuleKey; id: string };
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = vietnamToday;
 const uid = (prefix: string) => `${prefix}-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
 const csvEscape = (value: unknown) => `"${String(value ?? "").replaceAll('"', '""')}"`;
 const formatCurrency = (value: unknown) => new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(Number(value) || 0);
@@ -127,7 +129,7 @@ const parseGscFile = async (file: File, importDate: string): Promise<Row[]> => {
     if (dateIndex === undefined) return [];
     return dataLines.map(line => {
       const values = parseCsvLine(line, delimiter);
-      const date = normalizeImportDate(values[dateIndex], importDate);
+      const date = normalizeImportDate(values[dateIndex], "");
       const clicks = clicksIndex !== undefined ? csvInteger(values[clicksIndex]) : 0;
       const impressions = impressionsIndex !== undefined ? csvInteger(values[impressionsIndex]) : 0;
       const ctr = ctrIndex !== undefined ? csvDecimal(values[ctrIndex]) : (impressions ? Number((clicks / impressions * 100).toFixed(2)) : 0);
@@ -136,7 +138,7 @@ const parseGscFile = async (file: File, importDate: string): Promise<Row[]> => {
         id: uid("GSC-TOTAL"), keyword: `Tổng hiệu suất GSC ${date}`, page: "", gscSummary: true,
         position, previous: 0, clicks, impressions, ctr, date, source: file.name,
       });
-    }).filter(row => row.date && (Number(row.clicks) > 0 || Number(row.impressions) > 0));
+    }).filter(row => row.date);
   }
   const keywordIndex = findColumn(...keywordAliases);
   const pageIndex = findColumn("Trang phổ biến nhất", "Trang", "Page", "Top pages", "Landing page", "Trang đích", "Final URL", "URL");
@@ -430,6 +432,7 @@ function downloadFile(name: string, content: string, type: string) {
 
 export default function Home() {
   const [active, setActive] = useState("dashboard");
+  const [performanceMonth, setPerformanceMonth] = useState(today().slice(0, 7));
   const [data, setData] = useState<AppData>(seedData);
   const [settings, setSettings] = useState<SiteSettings>(defaultSettings);
   const [projects, setProjects] = useState<Project[]>([{ id: "project-air-sea", name: "Air & Sea Global", domain: "https://airandseaglobal.vn", timezone: "Asia/Ho_Chi_Minh" }]);
@@ -691,9 +694,9 @@ export default function Home() {
       <header className="topbar"><button className="menu-toggle" onClick={() => setMobileNavOpen(true)} aria-label="Mở menu"><Icon name="menu" size={20} /></button><div className="topbar-title"><div className="breadcrumb">{settings.name.toUpperCase()} <span>/</span> {new Date().toLocaleDateString("vi-VN")}</div><h1>{active === "settings" ? "Cài đặt hệ thống" : active === "reports" ? "Báo cáo SEO" : active === "dashboard" ? "Dashboard" : moduleMeta[moduleKey]?.title}</h1></div><div className="top-actions"><button className="search-trigger" onClick={() => setPaletteOpen(true)}><Icon name="search" size={15} /><span>Tìm nhanh…</span><kbd>Ctrl K</kbd></button><button className="automation" onClick={runAutomation}><Icon name="bolt" size={15} /><span>Tự động hóa</span></button><div className="account-wrap"><button className="account-button" onClick={() => setAccountMenuOpen(value => !value)}><span className="account-avatar">{supabaseConfigured && accountEmail ? accountEmail.slice(0, 1).toUpperCase() : "SEO"}</span><span><b>{supabaseConfigured && accountEmail ? accountEmail : "Local workspace"}</b><small>{supabaseConfigured ? "Tài khoản Google/Supabase" : "Chưa đăng nhập cloud"}</small></span><strong>⌄</strong></button>{accountMenuOpen && <div className="account-menu">{supabaseConfigured ? <><div className="account-menu-head"><b>{accountEmail || "Tài khoản hiện tại"}</b><small>Đang đăng nhập</small></div><button onClick={() => navigate("settings")}>Cài đặt tài khoản</button><button className="logout-button" onClick={logout}>Đăng xuất</button></> : <><div className="account-menu-head"><b>Local workspace</b><small>Dữ liệu đang lưu trên thiết bị này</small></div><button onClick={() => { window.location.href = "/auth"; }}>Đăng nhập</button></>}</div>}</div></div></header>
       <div className="content-wrap">
         {active === "dashboard" && <Dashboard data={data} settings={settings} setActive={navigate} runAutomation={runAutomation} />}
-        {active === "reports" && <ReportBuilder data={data} settings={settings} savedReports={settings.reports || []} onSaveReports={reports => setSettings({ ...settings, reports })} notify={setToast} onNavigate={navigate} projectId={activeProjectId} />}
+        {active === "reports" && <ReportBuilder key={activeProjectId} data={data} settings={settings} savedReports={settings.reports || []} onSaveReports={reports => setSettings({ ...settings, reports })} notify={setToast} onNavigate={navigate} projectId={activeProjectId} selectedMonth={performanceMonth} onMonthChange={setPerformanceMonth} />}
         {active === "settings" && <Settings data={data} setData={setData} settings={settings} setSettings={setSettings} notify={setToast} requestConfirm={setConfirmDialog} />}
-        {moduleMeta[moduleKey] && <ModuleView module={moduleKey} rows={data[moduleKey]} setRows={rows => saveRows(moduleKey, rows)} onChange={addChange} onRecordSaved={syncActivityLog} onOpenSource={openSourceRecord} focusRecordId={recordTarget?.module === moduleKey ? recordTarget.id : ""} onFocusHandled={() => setRecordTarget(null)} siteUrl={settings.domain} personnel={data.personnel} />}
+        {moduleMeta[moduleKey] && <ModuleView key={`${activeProjectId}:${moduleKey}`} module={moduleKey} rows={data[moduleKey]} setRows={rows => saveRows(moduleKey, rows)} onChange={addChange} onRecordSaved={syncActivityLog} onOpenSource={openSourceRecord} focusRecordId={recordTarget?.module === moduleKey ? recordTarget.id : ""} onFocusHandled={() => setRecordTarget(null)} siteUrl={settings.domain} personnel={data.personnel} selectedMonth={performanceMonth} onMonthChange={setPerformanceMonth} onBackup={() => downloadFile(`seo-backup-${today()}.json`, JSON.stringify({ version: 2, settings, data }, null, 2), "application/json")} />}
       </div>
     </main>
     {toast && <div className={`toast ${toastTone}`} role="status"><span className="toast-icon">{toastTone === "error" ? "!" : toastTone === "info" ? "i" : "✓"}</span><div><b>{toastTone === "error" ? "Có lỗi xảy ra" : toastTone === "info" ? "Thông tin" : "Thành công"}</b><p>{toast}</p></div><button type="button" onClick={() => setToast("")} aria-label="Đóng thông báo">×</button></div>}
@@ -739,7 +742,7 @@ function Dashboard({ data, settings, setActive, runAutomation }: { data: AppData
 
 function Signal({ label, value, danger }: { label: string; value: number; danger?: boolean }) { return <div className="signal"><span className={danger ? "signal-dot danger" : "signal-dot"} /><div><b>{label}</b><small>{danger && value ? "Cần ưu tiên" : "Đang theo dõi"}</small></div><strong>{value}</strong></div>; }
 
-function ModuleView({ module, rows, setRows, onChange, onRecordSaved, onOpenSource, focusRecordId, onFocusHandled, siteUrl, personnel }: { module: ModuleKey; rows: Row[]; setRows: (rows: Row[]) => void; onChange: (action: string, entity: string, detail?: string) => void; onRecordSaved: (module: ModuleKey, row: Row, existed: boolean) => void; onOpenSource: (module: ModuleKey, id: string) => void; focusRecordId: string; onFocusHandled: () => void; siteUrl: string; personnel: Row[] }) {
+function ModuleView({ module, rows, setRows, onChange, onRecordSaved, onOpenSource, focusRecordId, onFocusHandled, siteUrl, personnel, selectedMonth, onMonthChange, onBackup }: { module: ModuleKey; rows: Row[]; setRows: (rows: Row[]) => void; onChange: (action: string, entity: string, detail?: string) => void; onRecordSaved: (module: ModuleKey, row: Row, existed: boolean) => void; onOpenSource: (module: ModuleKey, id: string) => void; focusRecordId: string; onFocusHandled: () => void; siteUrl: string; personnel: Row[]; selectedMonth: string; onMonthChange: (month: string) => void; onBackup: () => void }) {
   const meta = moduleMeta[module];
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("All");
@@ -756,6 +759,11 @@ function ModuleView({ module, rows, setRows, onChange, onRecordSaved, onOpenSour
   const [open, setOpen] = useState(false);
   const [gscStatus, setGscStatus] = useState("");
   const [importDate, setImportDate] = useState(today());
+  const [importFrom, setImportFrom] = useState(monthPeriod(selectedMonth).from);
+  const [importTo, setImportTo] = useState(monthPeriod(selectedMonth).to);
+  const [pendingImport, setPendingImport] = useState<ImportPlan | null>(null);
+  const [undoImport, setUndoImport] = useState<{ before: Row[]; after: Row[] } | null>(null);
+  const [syncing, setSyncing] = useState(false);
   const [rankBand, setRankBand] = useState("All");
   const [rankSort, setRankSort] = useState("position");
   const [rankDirection, setRankDirection] = useState<"asc" | "desc">("asc");
@@ -763,6 +771,11 @@ function ModuleView({ module, rows, setRows, onChange, onRecordSaved, onOpenSour
   const [analyticsCategory, setAnalyticsCategory] = useState("All");
   const fileRef = useRef<HTMLInputElement>(null);
   const dateKeys = moduleDateKeys[module];
+  const isPerformance = module === "rankings" || module === "analytics";
+  const performancePeriod = monthPeriod(selectedMonth);
+  const periodRows = isPerformance ? rowsInPeriod(rows, performancePeriod) : rows;
+  useEffect(() => { const period = monthPeriod(selectedMonth); setImportFrom(period.from); setImportTo(period.to); setImportDate(period.to); }, [selectedMonth]);
+  useEffect(() => { setPendingImport(null); setUndoImport(null); setGscStatus(""); }, [module]);
   useEffect(() => {
     if (!focusRecordId) return;
     const target = rows.find(row => row.id === focusRecordId);
@@ -780,7 +793,7 @@ function ModuleView({ module, rows, setRows, onChange, onRecordSaved, onOpenSour
     if (preset === "custom" && !dateFrom && !dateTo) { setDateFrom(today()); setDateTo(today()); }
   };
   const filtered = useMemo(() => {
-    const result = rows.filter(row => {
+    const result = (module === "rankings" ? gscKeywordsForPeriod(rows, performancePeriod) : isPerformance ? rowsInPeriod(rows, performancePeriod) : rows).filter(row => {
       if (module === "rankings" && row.gscSummary === true) return false;
       const matchesQuery = Object.values(row).join(" ").toLowerCase().includes(query.toLowerCase());
       const matchesStatus = status === "All" || String(row.status) === status;
@@ -813,7 +826,7 @@ function ModuleView({ module, rows, setRows, onChange, onRecordSaved, onOpenSour
       const difference = Number(left[rankSort] || 0) - Number(right[rankSort] || 0);
       return (difference || String(left.keyword || "").localeCompare(String(right.keyword || ""), "vi")) * (rankDirection === "asc" ? 1 : -1);
     });
-  }, [rows, query, status, auditCategory, workGroup, module, rankBand, rankSort, rankDirection, dateKeys, dateFrom, dateTo, analyticsCategory]);
+  }, [rows, query, status, auditCategory, workGroup, module, rankBand, rankSort, rankDirection, dateKeys, dateFrom, dateTo, analyticsCategory, selectedMonth]);
   const rankPageSize = 30;
   const isPaginated = module === "rankings" || (module === "analytics" && filtered.length > rankPageSize);
   const rankTotalPages = isPaginated ? Math.max(1, Math.ceil(filtered.length / rankPageSize)) : 1;
@@ -843,9 +856,9 @@ function ModuleView({ module, rows, setRows, onChange, onRecordSaved, onOpenSour
     }, 0);
     return () => window.clearTimeout(timer);
   }, [module, visibleRows]);
-  useEffect(() => { if (module === "rankings" || module === "analytics") setRankPage(1); }, [module, query, status, rankBand, rankSort, rankDirection, analyticsCategory, rows.length]);
+  useEffect(() => { if (module === "rankings" || module === "analytics") setRankPage(1); }, [module, query, status, rankBand, rankSort, rankDirection, analyticsCategory, rows.length, selectedMonth]);
   useEffect(() => {
-    const onEsc = (event: KeyboardEvent) => { if (event.key !== "Escape") return; setOpen(false); setEditing(null); setViewing(null); setGallery(null); setDeleting(null); setClearing(false); };
+    const onEsc = (event: KeyboardEvent) => { if (event.key !== "Escape") return; setOpen(false); setEditing(null); setViewing(null); setGallery(null); setDeleting(null); setClearing(false); setPendingImport(null); };
     window.addEventListener("keydown", onEsc);
     return () => window.removeEventListener("keydown", onEsc);
   }, []);
@@ -872,12 +885,30 @@ function ModuleView({ module, rows, setRows, onChange, onRecordSaved, onOpenSour
   const remove = (row: Row) => setDeleting(row);
   const confirmRemove = () => { if (!deleting) return; setRows(rows.filter(item => item.id !== deleting.id)); onChange("Xóa", `${meta.title}: ${deleting.id}`); setDeleting(null); };
   const confirmClearAll = () => { const count = rows.length; setRows([]); onChange("Xóa sạch dữ liệu", meta.title, `${count} bản ghi`); setGscStatus(`Đã xóa sạch ${count} dòng dữ liệu`); setClearing(false); };
-  const exportCsv = () => { const keys = fields[module].map(field => field.key); const content = "\uFEFF" + [keys.map(csvEscape).join(","), ...rows.map(row => keys.map(key => csvEscape(row[key])).join(","))].join("\n"); downloadFile(`${module}-${today()}.csv`, content, "text/csv;charset=utf-8"); };
+  const exportCsv = () => { const exported = isPerformance ? periodRows : rows; const keys = [...new Set([...fields[module].map(field => field.key), ...(isPerformance ? ["periodStart", "periodEnd", "granularity", "gscSummary", "source", ...exported.flatMap(row => Object.keys(row))] : [])])]; const content = "\uFEFF" + [keys.map(csvEscape).join(","), ...exported.map(row => keys.map(key => csvEscape(row[key])).join(","))].join("\n"); downloadFile(`${module}-${isPerformance ? selectedMonth : today()}.csv`, content, "text/csv;charset=utf-8"); };
+  const previewImport = (incoming: Row[], source: string, period = { from: importFrom, to: importTo }) => {
+    if (module !== "rankings" && module !== "analytics") return;
+    const plan = planImport(module, rows, incoming, period, source);
+    setPendingImport(plan); setGscStatus(`Đã đọc ${plan.incoming.length} dòng. Kiểm tra kỳ và dữ liệu thay thế trước khi nhập.`);
+  };
+  const confirmImport = () => {
+    if (!pendingImport) return;
+    try {
+      const plan = planImport(pendingImport.module, rows, pendingImport.incoming, pendingImport.period, pendingImport.source);
+      const after = [...plan.incoming, ...plan.preserved];
+      setRows(after); setUndoImport({ before: rows, after }); setPendingImport(null);
+      onMonthChange(plan.period.to.slice(0, 7));
+      onChange("Nhập dữ liệu theo kỳ", meta.title, `${periodLabel(plan.period)} · ${plan.incoming.length} dòng · thay ${plan.replaced.length} dòng`);
+      setGscStatus(`Đã nhập ${plan.incoming.length} dòng cho ${periodLabel(plan.period)}. Các kỳ khác được giữ nguyên.`);
+    } catch (error) { setGscStatus(error instanceof Error ? error.message : "Không nhập được dữ liệu."); }
+  };
   const importCsv = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]; if (!file) return;
+    if (isPerformance && !validPeriod({ from: importFrom, to: importTo })) { setGscStatus("Không nhập được: hãy chọn khoảng ngày hợp lệ."); event.target.value = ""; return; }
+    setSyncing(true);
 
     if (module === "rankings" && file.name.toLowerCase().endsWith(".zip")) {
-      if (file.size > 50 * 1024 * 1024) { setGscStatus("File ZIP vượt quá giới hạn 50 MB."); event.target.value = ""; return; }
+      if (file.size > 50 * 1024 * 1024) { setGscStatus("File ZIP vượt quá giới hạn 50 MB."); event.target.value = ""; setSyncing(false); return; }
       setGscStatus("Đang giải nén và phân tích dữ liệu GSC từ file ZIP…");
       try {
         const archive = await JSZip.loadAsync(file);
@@ -901,7 +932,7 @@ function ModuleView({ module, rows, setRows, onChange, onRecordSaved, onOpenSour
             const groupRows = await parseGscFile(new File([content], baseName, { type: "text/csv" }), importDate);
             if (groupRows.length) parsedGroups.push(groupRows);
           } catch (entryErr) {
-            console.warn(`Lỗi khi đọc file ${entry.name} trong ZIP:`, entryErr);
+            throw new Error(`Không đọc đủ file ${entry.name} trong ZIP: ${entryErr instanceof Error ? entryErr.message : "file không hợp lệ"}. Chưa nhập dữ liệu.`);
           }
         }
         const parsedRows = parsedGroups.flat();
@@ -910,40 +941,15 @@ function ModuleView({ module, rows, setRows, onChange, onRecordSaved, onOpenSour
           event.target.value = "";
           return;
         }
-        const summaryEndDate = parsedRows.filter(row => row.gscSummary === true).map(row => String(row.date || "")).sort().at(-1);
-        const gscZipRows = summaryEndDate ? parsedRows.map(row => row.gscSummary === true ? row : { ...row, date: summaryEndDate }) : parsedRows;
-
-        const existingKeywordMap = new Map<string, Row>();
-        rows.forEach(row => {
-          if (row.gscSummary !== true && row.keyword) {
-            existingKeywordMap.set(String(row.keyword).trim().toLowerCase(), row);
-          }
-        });
-
-        const finalZipRows = gscZipRows.map(row => {
-          if (row.gscSummary === true) return row;
-          const key = String(row.keyword || "").trim().toLowerCase();
-          const prev = existingKeywordMap.get(key);
-          const currentPos = Number(row.position || 0);
-          const prevPos = prev && prev.date !== row.date && Number(prev.position || 0) > 0 ? Number(prev.position) : currentPos;
-          return { ...row, previous: prevPos };
-        });
-
-        const importedKeys = new Set(finalZipRows.map(row => `${String(row.keyword).trim().toLowerCase()}|${String(row.page || "").trim().toLowerCase()}|${row.date}`));
-        const preserved = rows.filter(row => !importedKeys.has(`${String(row.keyword).trim().toLowerCase()}|${String(row.page || "").trim().toLowerCase()}|${row.date}`));
-        setRows([...finalZipRows, ...preserved]);
-        onChange("Import GSC ZIP", meta.title, `${finalZipRows.length} bản ghi`);
-
-        const keywordCount = finalZipRows.filter(row => row.gscSummary !== true).length;
-        const summaryCount = finalZipRows.filter(row => row.gscSummary === true).length;
-        setGscStatus(summaryCount ? `Đã nhập thành công ${keywordCount} từ khóa + ${summaryCount} ngày tổng hiệu suất từ ${file.name}` : `Đã nhập thành công ${keywordCount} từ khóa từ ${file.name}`);
+        const dates = parsedRows.filter(row => row.gscSummary === true).map(row => String(row.date)).sort();
+        previewImport(parsedRows, file.name, dates.length ? { from: dates[0], to: dates[dates.length - 1] } : { from: importFrom, to: importTo });
         event.target.value = "";
         return;
       } catch (error) {
         setGscStatus(error instanceof Error ? `Không đọc được ZIP: ${error.message}` : "Không đọc được file ZIP GSC.");
         event.target.value = "";
         return;
-      }
+      } finally { setSyncing(false); }
     }
 
     try {
@@ -952,17 +958,27 @@ function ModuleView({ module, rows, setRows, onChange, onRecordSaved, onOpenSour
       const delimiter = detectDelimiter(lines);
       let headers = parseCsvLine(lines[0], delimiter);
       let dataLines = lines.slice(1);
+      if (isPerformance && headers.includes("periodStart") && headers.includes("periodEnd")) {
+        const restored = dataLines.map(line => {
+          const values = parseCsvLine(line, delimiter); const row: Row = { id: uid(meta.prefix) };
+          headers.forEach((header, index) => { if (header !== "id") row[header] = ["gscSummary", "partialDataset"].includes(header) ? values[index] === "true" : values[index] || ""; });
+          return row;
+        });
+        previewImport(restored, file.name); return;
+      }
       let reportDate = importDate;
+      const exportDate = (aliases: string[]) => {
+        const line = lines.find(line => aliases.some(alias => normalizeCsvHeader(line).startsWith(`# ${alias}:`)));
+        return line ? normalizeImportDate(line.slice(line.indexOf(":") + 1).trim(), "") : "";
+      };
+      const fileStart = exportDate(["ngay bat dau", "start date"]);
+      const fileEnd = exportDate(["ngay ket thuc", "end date"]);
       const imported = module === "rankings" ? await parseGscFile(file, importDate) : module === "analytics" ? (() => {
         const isOverviewReport = lines.some(line => {
           const normalized = normalizeCsvHeader(line);
-          return normalized.includes("tong quan nhanh ve bao cao") ||
-            normalized.includes("nhom kenh chinh cua phien") ||
-            normalized.includes("tieu de trang va loai man hinh") ||
-            normalized.includes("nhom kenh chinh co nguoi dung lan dau");
-        });
-        const fileEndMatch = lines.map(line => line.match(/^#\s*Ngày kết thúc:\s*(\d{8})/i)).find(Boolean);
-        reportDate = normalizeImportDate(fileEndMatch?.[1] || "", importDate);
+          return normalized.includes("tong quan nhanh ve bao cao") || normalized.includes("reports snapshot");
+        }) || (lines.some(line => normalizeCsvHeader(line).includes("first user default channel") || normalizeCsvHeader(line).includes("nhom kenh chinh co nguoi dung lan dau")) && lines.some(line => normalizeCsvHeader(line).includes("page title") || normalizeCsvHeader(line).includes("tieu de trang")));
+        reportDate = fileEnd || importTo;
         const readBlock = (headerMatcher: (normalizedHeaders: string[]) => boolean) => {
           const headerIndex = lines.findIndex(line => headerMatcher(parseCsvLine(line, delimiter).map(normalizeCsvHeader)));
           if (headerIndex < 0) return { headers: [] as string[], rows: [] as string[][] };
@@ -981,7 +997,6 @@ function ModuleView({ module, rows, setRows, onChange, onRecordSaved, onOpenSour
           const newUsersBlock = readBlock(h => h.some(v => v.includes("nhom kenh chinh co nguoi dung lan dau") || v.includes("first user default channel")) && h.some(v => v.includes("nguoi dung moi") || v.includes("new users")));
           const pagesBlock = readBlock(h => h.some(v => v.includes("tieu de trang") || v.includes("page title") || v.includes("loai man hinh")) && h.some(v => v.includes("luot xem") || v.includes("views")));
           const eventsBlock = readBlock(h => h.some(v => v.includes("ten su kien") || v.includes("event name")) && h.some(v => v.includes("so luong su kien") || v.includes("event count")));
-          const activeTrend = readBlock(h => (h.includes("30 ngay") || h.includes("30 days")) && (h.includes("7 ngay") || h.includes("7 days")) && (h.includes("1 ngay") || h.includes("1 day")));
           const revenueBlock = readBlock(h => h.some(v => v.includes("tong doanh thu") || v.includes("total revenue")));
 
           const eventMap = new Map<string, number>();
@@ -990,13 +1005,10 @@ function ModuleView({ module, rows, setRows, onChange, onRecordSaved, onOpenSour
             eventMap.set(eventName, csvInteger(values[1]));
           });
 
-          const activeUsers = activeTrend.rows.length ? csvInteger(activeTrend.rows[activeTrend.rows.length - 1][1]) : 0;
           const revenue = revenueBlock.rows.reduce((sum, values) => sum + csvDecimal(values[1]), 0);
           const totalViewsFromEvents = eventMap.get("page_view") || 0;
           const totalSessionsFromEvents = eventMap.get("session_start") || 0;
           const totalNewUsersFromEvents = eventMap.get("first_visit") || 0;
-          const totalEngagedFromEvents = eventMap.get("user_engagement") || 0;
-          const totalConversions = eventMap.get("form_submit") || eventMap.get("conversion") || eventMap.get("purchase") || 0;
 
           const channelMap = new Map<string, Row>();
           sessionsBlock.rows.forEach(values => {
@@ -1056,6 +1068,7 @@ function ModuleView({ module, rows, setRows, onChange, onRecordSaved, onOpenSour
               channel: "Trang xem nhiều",
               page: pageTitle,
               views,
+              partialDataset: true,
               sessions: 0,
               users: 0,
               newUsers: 0,
@@ -1069,31 +1082,28 @@ function ModuleView({ module, rows, setRows, onChange, onRecordSaved, onOpenSour
           });
 
           const sumViews = pageRows.reduce((sum, r) => sum + Number(r.views || 0), 0);
-          const finalTotalViews = totalViewsFromEvents || sumViews;
-          const finalTotalSessions = totalSessionsFromEvents || channelTotalSessions;
-          const finalTotalNewUsers = totalNewUsersFromEvents || channelTotalNewUsers;
+          const finalTotalViews = eventMap.has("page_view") ? totalViewsFromEvents : sumViews;
+          const finalTotalSessions = eventMap.has("session_start") ? totalSessionsFromEvents : channelTotalSessions;
+          const finalTotalNewUsers = eventMap.has("first_visit") ? totalNewUsersFromEvents : channelTotalNewUsers;
 
           const overviewRow: Row = {
             id: uid(meta.prefix),
             date: reportDate,
             channel: "Tổng quan",
+            reportType: "snapshot",
             page: "",
-            views: finalTotalViews,
-            sessions: finalTotalSessions,
-            users: activeUsers,
-            newUsers: finalTotalNewUsers,
-            engagedSessions: totalEngagedFromEvents,
-            engagementRate: finalTotalSessions ? Math.min(100, Math.round(totalEngagedFromEvents / finalTotalSessions * 100)) : 0,
-            conversions: totalConversions,
+            ...(eventMap.has("page_view") ? { views: finalTotalViews } : {}),
+            ...(eventMap.has("session_start") || sessionsBlock.rows.length ? { sessions: finalTotalSessions } : {}),
+            ...(eventMap.has("first_visit") || newUsersBlock.rows.length ? { newUsers: finalTotalNewUsers } : {}),
             revenue,
             source: file.name,
-            notes: "Tổng quan toàn trang từ báo cáo GA4"
+            notes: "Tổng quan từ báo cáo GA4. File snapshot không đủ chỉ số người dùng toàn kỳ, phiên tương tác và sự kiện chính; nhập báo cáo có các cột chỉ số đó để so sánh."
           };
 
           const allRows = [overviewRow, ...channelRows, ...pageRows];
           return allRows.map(row => normalizeRow(module, row));
         }
-        const headerRowIndex = lines.findIndex(line => parseCsvLine(line, delimiter).some(header => ["sessions", "phien", "so phien"].includes(normalizeCsvHeader(header))));
+        const headerRowIndex = lines.findIndex(line => parseCsvLine(line, delimiter).some(header => ["sessions", "phien", "so phien", "views", "luot xem"].includes(normalizeCsvHeader(header))));
         if (headerRowIndex < 0) return null;
         headers = parseCsvLine(lines[headerRowIndex], delimiter);
         dataLines = [];
@@ -1104,7 +1114,7 @@ function ModuleView({ module, rows, setRows, onChange, onRecordSaved, onOpenSour
         const headerMap = new Map(headers.map((header, index) => [normalizeCsvHeader(header), index]));
         const findColumn = (...names: string[]) => names.map(name => headerMap.get(normalizeCsvHeader(name))).find(index => index !== undefined);
         const dateIndex = findColumn("Date", "Ngày", "Day");
-        const channelIndex = findColumn("Session default channel group", "Default channel group", "Channel", "Kênh traffic", "Nhóm kênh mặc định của phiên");
+        const channelIndex = findColumn("Session default channel group", "Session primary channel group (Default Channel Group)", "Default channel group", "Channel", "Kênh traffic", "Nhóm kênh mặc định của phiên", "Nhóm kênh chính của phiên");
         const pageIndex = findColumn("Page title", "Page", "Tiêu đề trang", "Trang", "Landing page");
         const viewsIndex = findColumn("Views", "Lượt xem", "Số lượt xem", "Pageviews");
         const sessionsIndex = findColumn("Sessions", "Phiên", "Số phiên");
@@ -1118,18 +1128,19 @@ function ModuleView({ module, rows, setRows, onChange, onRecordSaved, onOpenSour
         const valueAt = (values: string[], index: number | undefined) => index === undefined ? "" : values[index] || "";
         return dataLines.map(line => {
           const values = parseCsvLine(line, delimiter);
-          const channel = valueAt(values, channelIndex) || (viewsIndex !== undefined && !sessionsIndex ? "Trang xem nhiều" : "Organic Search");
+          const channel = valueAt(values, channelIndex) || (pageIndex !== undefined ? "Trang xem nhiều" : "Tổng quan");
           const page = valueAt(values, pageIndex);
           const views = csvInteger(valueAt(values, viewsIndex));
           const rawRate = valueAt(values, engagementRateIndex);
           const rate = csvNumber(rawRate);
           return normalizeRow(module, {
-            id: uid(meta.prefix), date: normalizeImportDate(valueAt(values, dateIndex), reportDate), channel, page, views,
-            sessions: csvInteger(valueAt(values, sessionsIndex)), users: csvInteger(valueAt(values, usersIndex)), newUsers: csvInteger(valueAt(values, newUsersIndex)),
-            engagedSessions: csvInteger(valueAt(values, engagedIndex)), engagementRate: rawRate.includes("%") || rate > 1 ? rate : rate * 100,
-            conversions: csvDecimal(valueAt(values, conversionsIndex)), revenue: csvDecimal(valueAt(values, revenueIndex)), source: file.name,
+            id: uid(meta.prefix), date: normalizeImportDate(valueAt(values, dateIndex), reportDate), granularity: dateIndex !== undefined ? "day" : "period", channel, page,
+            ...(viewsIndex !== undefined ? { views } : {}), ...(sessionsIndex !== undefined ? { sessions: csvInteger(valueAt(values, sessionsIndex)) } : {}),
+            ...(usersIndex !== undefined ? { users: csvInteger(valueAt(values, usersIndex)) } : {}), ...(newUsersIndex !== undefined ? { newUsers: csvInteger(valueAt(values, newUsersIndex)) } : {}),
+            ...(engagedIndex !== undefined ? { engagedSessions: csvInteger(valueAt(values, engagedIndex)) } : {}), ...(engagementRateIndex !== undefined ? { engagementRate: rawRate.includes("%") || rate > 1 ? rate : rate * 100 } : {}),
+            ...(conversionsIndex !== undefined ? { conversions: csvDecimal(valueAt(values, conversionsIndex)) } : {}), ...(revenueIndex !== undefined ? { revenue: csvDecimal(valueAt(values, revenueIndex)) } : {}), source: file.name,
           });
-        }).filter(row => String(row.channel || "").toLowerCase() !== "total" && ["views", "sessions", "users", "newUsers", "engagedSessions", "conversions", "revenue"].some(key => Number(row[key] || 0) !== 0));
+        }).filter(row => !["total", "tong", "tong cong"].includes(normalizeCsvHeader(String(row.channel || ""))));
       })() : dataLines.map(line => { const values = parseCsvLine(line, delimiter); const row: Row = { id: uid(meta.prefix) }; headers.forEach((key, index) => row[key] = values[index] ?? ""); return normalizeRow(module, row); });
 
       if (!imported?.length) {
@@ -1138,85 +1149,57 @@ function ModuleView({ module, rows, setRows, onChange, onRecordSaved, onOpenSour
         return;
       }
 
-      if (module === "rankings") {
-        const existingKeywordMap = new Map<string, Row>();
-        rows.forEach(row => {
-          if (row.gscSummary !== true && row.keyword) {
-            existingKeywordMap.set(String(row.keyword).trim().toLowerCase(), row);
-          }
-        });
-        const enrichedImported = imported.map(row => {
-          if (row.gscSummary === true) return row;
-          const key = String(row.keyword || "").trim().toLowerCase();
-          const prev = existingKeywordMap.get(key);
-          const currentPos = Number(row.position || 0);
-          const prevPos = prev && prev.date !== row.date && Number(prev.position || 0) > 0 ? Number(prev.position) : currentPos;
-          return { ...row, previous: prevPos };
-        });
-        const importedKeys = new Set(enrichedImported.map(row => `${String(row.keyword).trim().toLowerCase()}|${String(row.page || "").trim().toLowerCase()}|${row.date}`));
-        const preserved = rows.filter(row => !importedKeys.has(`${String(row.keyword).trim().toLowerCase()}|${String(row.page || "").trim().toLowerCase()}|${row.date}`));
-        setRows([...enrichedImported, ...preserved]);
-      } else if (module === "analytics") {
-        const isOverviewImport = imported.some(row => row.channel === "Tổng quan");
-        const importedKeys = new Set(imported.map(row => `${row.date}|${String(row.channel || "").trim().toLowerCase()}|${String(row.page || "").trim().toLowerCase()}`));
-        const preserved = rows.filter(row => {
-          if (isOverviewImport && row.date === reportDate && (row.channel === "Tổng quan" || row.channel === "Trang xem nhiều" || !row.page)) return false;
-          return !importedKeys.has(`${row.date}|${String(row.channel || "").trim().toLowerCase()}|${String(row.page || "").trim().toLowerCase()}`);
-        });
-        setRows([...imported, ...preserved]);
-      } else setRows([...imported, ...rows]);
-      onChange(module === "rankings" ? "Import GSC CSV" : module === "analytics" ? "Import GA4 CSV" : "Import CSV", meta.title, `${imported.length} bản ghi`);
       if (module === "rankings" || module === "analytics") {
-        if (module === "analytics") {
-          const channelCount = imported.filter(r => r.channel !== "Tổng quan" && r.channel !== "Trang xem nhiều" && !r.page).length;
-          const pageCount = imported.filter(r => r.channel === "Trang xem nhiều" || Boolean(r.page)).length;
-          setGscStatus(pageCount || channelCount ? `Đã nhập GA4: 1 dòng Tổng quan, ${channelCount} kênh traffic và ${pageCount} trang xem nhiều nhất từ ${file.name}` : `Đã nhập ${imported.length} dòng từ ${file.name}`);
-        } else {
-          const keywordCount = imported.filter(row => row.gscSummary !== true).length;
-          const summaryCount = imported.filter(row => row.gscSummary === true).length;
-          setGscStatus(summaryCount ? `Đã nhập ${keywordCount} từ khóa + ${summaryCount} ngày tổng hiệu suất từ ${file.name}` : `Đã nhập ${imported.length} dòng từ ${file.name}`);
-        }
-      }
+        const dates = imported.filter(row => row.gscSummary === true || row.granularity === "day").map(row => String(row.date)).sort();
+        const period = fileStart && fileEnd ? { from: fileStart, to: fileEnd } : dates.length ? { from: dates[0], to: dates[dates.length - 1] } : { from: importFrom, to: importTo };
+        previewImport(imported, file.name, period);
+        return;
+      } else setRows([...imported, ...rows]);
+      onChange("Import CSV", meta.title, `${imported.length} bản ghi`);
     } catch (err) {
       console.error("Lỗi khi nhập file CSV:", err);
       setGscStatus(err instanceof Error ? `Lỗi nhập file: ${err.message}` : "Có lỗi khi xử lý file CSV.");
     } finally {
       event.target.value = "";
+      setSyncing(false);
     }
   };
   const syncSearchConsole = async () => {
-    setGscStatus("Đang lấy dữ liệu…");
-    const end = today(); const startDate = new Date(); startDate.setDate(startDate.getDate() - 28);
+    if (!validPeriod(performancePeriod)) return;
+    setGscStatus("Đang lấy dữ liệu cho tháng đã chọn…"); setSyncing(true);
+    try {
+    const { from: start, to: end } = performancePeriod;
     const session = supabaseConfigured && supabase ? (await supabase.auth.getSession()).data.session : null;
-    const response = await fetch(`/api/search-console/query?siteUrl=${encodeURIComponent(siteUrl.endsWith("/") ? siteUrl : `${siteUrl}/`)}&startDate=${startDate.toISOString().slice(0, 10)}&endDate=${end}`, { headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {} });
+    const property = siteUrl.startsWith("sc-domain:") || siteUrl.endsWith("/") ? siteUrl : `${siteUrl}/`;
+    const response = await fetch(`/api/search-console/query?siteUrl=${encodeURIComponent(property)}&startDate=${start}&endDate=${end}`, { headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {} });
     const result = await response.json();
     if (!response.ok) { setGscStatus(result.error || "Không lấy được dữ liệu"); return; }
-    const imported: Row[] = (result.rows || []).map((item: { keys?: string[]; clicks?: number; impressions?: number; ctr?: number; position?: number }) => ({ id: uid("KW"), keyword: item.keys?.[0] || "", page: item.keys?.[1] || "", position: Number(item.position || 0), previous: Number(item.position || 0), clicks: Number(item.clicks || 0), impressions: Number(item.impressions || 0), ctr: Number(((item.ctr || 0) * 100).toFixed(2)), date: end }));
-    setRows(imported); onChange("Đồng bộ Search Console", "Keyword Rankings", `${imported.length} dòng`); setGscStatus(`Đã cập nhật ${imported.length} dòng`);
+    type GscApiRow = { keys?: string[]; clicks?: number; impressions?: number; ctr?: number; position?: number };
+    const imported: Row[] = (result.rows || []).map((item: GscApiRow) => ({ id: uid("KW"), keyword: item.keys?.[0] || "", page: item.keys?.[1] || "", position: Number(item.position || 0), clicks: Number(item.clicks || 0), impressions: Number(item.impressions || 0), ctr: Number(((item.ctr || 0) * 100).toFixed(2)), date: end }));
+    const summaries: Row[] = (result.summaryRows || []).map((item: GscApiRow) => ({ id: uid("GSC-TOTAL"), keyword: `Tổng hiệu suất GSC ${item.keys?.[0]}`, page: "", gscSummary: true, position: Number(item.position || 0), clicks: Number(item.clicks || 0), impressions: Number(item.impressions || 0), date: item.keys?.[0] || "" }));
+    if (!imported.length && !summaries.length) { setGscStatus("Không có dữ liệu GSC đã hoàn tất trong kỳ. Lịch sử được giữ nguyên."); return; }
+    const effectiveEnd = summaries.map(row => String(row.date)).sort().at(-1) || end;
+    previewImport([...imported, ...summaries], "Google Search Console API · Web", { from: start, to: effectiveEnd });
+    } catch (error) { setGscStatus(error instanceof Error ? error.message : "Không kết nối được Google Search Console."); }
+    finally { setSyncing(false); }
   };
   const rowActions = (row: Row) => <>{module === "worklogs" && row.sourceModule && row.sourceId && <button className="table-action source-link" onClick={() => onOpenSource(String(row.sourceModule) as ModuleKey, String(row.sourceId))}>Xem công việc →</button>}<button className="table-action" onClick={() => setViewing(row)}>Chi tiết</button><button className="table-action" onClick={() => { setEditing(row); setOpen(true); }}>Sửa</button><button className="table-action delete" onClick={() => remove(row)}>Xóa</button></>;
 
-  const gaOverview = module === "analytics" ? rows.find(r => r.channel === "Tổng quan") : undefined;
-  const gaChannelRows = module === "analytics" ? rows.filter(r => r.channel !== "Tổng quan" && r.channel !== "Trang xem nhiều" && !r.page) : [];
-  const gaPageRows = module === "analytics" ? rows.filter(r => r.channel === "Trang xem nhiều" || Boolean(r.page)) : [];
-  const totalGaSessions = gaOverview && Number(gaOverview.sessions || 0) > 0 ? Number(gaOverview.sessions) : gaChannelRows.reduce((sum, r) => sum + Number(r.sessions || 0), 0);
-  const totalGaUsers = gaOverview && Number(gaOverview.users || 0) > 0 ? Number(gaOverview.users) : gaChannelRows.reduce((sum, r) => sum + Number(r.users || 0), 0);
-  const totalGaNewUsers = gaOverview && Number(gaOverview.newUsers || 0) > 0 ? Number(gaOverview.newUsers) : gaChannelRows.reduce((sum, r) => sum + Number(r.newUsers || 0), 0);
-  const totalGaViews = gaOverview && Number(gaOverview.views || 0) > 0 ? Number(gaOverview.views) : gaPageRows.reduce((sum, r) => sum + Number(r.views || 0), 0);
-  const totalGaConversions = gaOverview && Number(gaOverview.conversions || 0) > 0 ? Number(gaOverview.conversions) : gaChannelRows.reduce((sum, r) => sum + Number(r.conversions || 0), 0);
+  const gaData = analyticsMetrics(rows, performancePeriod);
+  const gaOverview = gaData.overview;
+  const gaChannelRows = gaData.channels;
+  const gaPageRows = gaData.pages;
 
   return <>
-    <section className="page-heading"><div><p className="eyebrow">{meta.eyebrow}</p><h2>{meta.title}</h2><p className="muted">{meta.description}</p>{(module === "rankings" || module === "analytics") && gscStatus && <p className={gscStatus.startsWith("Không") ? "sync-status error" : "sync-status"}>{gscStatus}</p>}</div><div className="button-row">{module === "rankings" && <><button className="secondary" onClick={() => { window.location.href = "/api/search-console/auth?returnTo=/rankings"; }}>Kết nối GSC</button><button className="secondary" onClick={syncSearchConsole}>↻ Đồng bộ GSC</button></>}{(module === "rankings" || module === "analytics") && <button className="danger-button" disabled={!rows.length} onClick={() => setClearing(true)}>Xóa sạch dữ liệu</button>}<button className="primary" onClick={() => { setEditing(null); setOpen(true); }}>＋ Thêm bản ghi</button></div></section>
-    {dateKeys.length > 0 && <DateFilterBar preset={datePreset} from={dateFrom} to={dateTo} onPreset={applyDatePreset} onFrom={value => { setDatePreset("custom"); setDateFrom(value); }} onTo={value => { setDatePreset("custom"); setDateTo(value); }} />}
-    {module === "analytics" && (totalGaSessions > 0 || totalGaViews > 0 || rows.length > 0) && <div className="gsc-summary" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", marginBottom: "14px" }}>
-      <div><span>Sessions (Phiên)</span><b>{totalGaSessions.toLocaleString("vi-VN")}</b></div>
-      <div><span>Người dùng</span><b>{totalGaUsers.toLocaleString("vi-VN")}</b></div>
-      <div><span>Người dùng mới</span><b>{totalGaNewUsers.toLocaleString("vi-VN")}</b></div>
-      <div><span>Tổng lượt xem trang</span><b>{totalGaViews.toLocaleString("vi-VN")}</b></div>
-      <div><span>Lượt chuyển đổi</span><b>{totalGaConversions.toLocaleString("vi-VN")}</b></div>
-      <div><span>Số trang ghi nhận</span><b>{gaPageRows.length.toLocaleString("vi-VN")} trang</b></div>
-    </div>}
-    <div className="toolbar"><div className="toolbar-left"><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Tìm kiếm dữ liệu…" />{statuses.length > 0 && <select value={status} onChange={event => setStatus(event.target.value)}><option>All</option>{statuses.map(item => <option key={item}>{item}</option>)}</select>}{module === "audits" && auditCategories.length > 0 && <select aria-label="Lọc theo nhóm lỗi" value={auditCategory} onChange={event => setAuditCategory(event.target.value)}><option value="All">Tất cả nhóm lỗi</option>{auditCategories.map(item => <option key={item}>{item}</option>)}</select>}{module === "worklogs" && workGroups.length > 0 && <select value={workGroup} onChange={event => setWorkGroup(event.target.value)}><option value="All">Tất cả nhóm công việc</option>{workGroups.map(item => <option key={item}>{item}</option>)}</select>}{module === "analytics" && <select aria-label="Phân loại dữ liệu GA4" value={analyticsCategory} onChange={event => setAnalyticsCategory(event.target.value)}><option value="All">Tất cả dữ liệu GA4 ({rows.length})</option><option value="channels">Kênh traffic ({gaChannelRows.length})</option><option value="pages">Trang xem nhiều ({gaPageRows.length})</option><option value="overview">Tổng quan website ({gaOverview ? 1 : 0})</option></select>}{module === "rankings" && <><select value={rankBand} onChange={event => setRankBand(event.target.value)}><option value="All">Tất cả thứ hạng</option><option value="top3">Top 3</option><option value="top10">Top 10</option><option value="top20">Top 20</option><option value="21-50">Top 21–50</option><option value="51-100">Top 51–100</option><option value="100+">Ngoài Top 100</option><option value="unknown">Chưa có thứ hạng</option></select><select value={rankSort} onChange={event => setRankSort(event.target.value)}><option value="position">Sắp xếp: Vị trí</option><option value="keyword">Sắp xếp: Keyword</option><option value="clicks">Sắp xếp: Clicks</option><option value="impressions">Sắp xếp: Impressions</option><option value="ctr">Sắp xếp: CTR</option></select><button className="secondary sort-direction" onClick={() => setRankDirection(current => current === "asc" ? "desc" : "asc")}>{rankDirection === "asc" ? "Tăng dần ↑" : "Giảm dần ↓"}</button></>}<span className="result-count">{filtered.length} bản ghi</span></div><div className="button-row">{(module === "rankings" || module === "analytics") && <label className="import-date"><span>Ngày áp dụng</span><input aria-label="Ngày áp dụng dữ liệu nhập" type="date" value={importDate} onChange={event => setImportDate(event.target.value)} /></label>}<input ref={fileRef} hidden type="file" accept={module === "rankings" ? ".zip,.csv,.tsv,application/zip,application/x-zip-compressed,multipart/x-zip,text/csv,text/tab-separated-values" : ".csv,.tsv,text/csv,text/tab-separated-values"} onChange={importCsv} /><button className="secondary" onClick={() => fileRef.current?.click()}>{module === "rankings" ? "Nhập ZIP / CSV GSC" : module === "analytics" ? "Nhập CSV GA4" : "Nhập CSV"}</button><button className="secondary" onClick={exportCsv}>Xuất CSV</button></div></div>
+    <section className="page-heading"><div><p className="eyebrow">{meta.eyebrow}</p><h2>{meta.title}</h2><p className="muted">{meta.description}</p>{(module === "rankings" || module === "analytics") && gscStatus && <p className={gscStatus.startsWith("Không") ? "sync-status error" : "sync-status"}>{gscStatus}</p>}</div><div className="button-row">{module === "rankings" && <><button className="secondary" onClick={() => { window.location.href = "/api/search-console/auth?returnTo=/rankings"; }}>Kết nối GSC</button><button className="secondary" disabled={syncing || Boolean(pendingImport)} onClick={syncSearchConsole}>{syncing ? "Đang lấy dữ liệu…" : "↻ Đồng bộ tháng đã chọn"}</button></>}{(module === "rankings" || module === "analytics") && <button className="danger-button" disabled={!rows.length} onClick={() => setClearing(true)}>Xóa sạch dữ liệu</button>}<button className="primary" onClick={() => { setEditing(null); setOpen(true); }}>＋ Thêm bản ghi</button></div></section>
+    {dateKeys.length > 0 && !isPerformance && <DateFilterBar preset={datePreset} from={dateFrom} to={dateTo} onPreset={applyDatePreset} onFrom={value => { setDatePreset("custom"); setDateFrom(value); }} onTo={value => { setDatePreset("custom"); setDateTo(value); }} />}
+    {isPerformance && <><MonthPicker month={selectedMonth} onChange={onMonthChange} /><MetricStrip metrics={comparisonMetrics(module as "rankings" | "analytics", rows, performancePeriod)} label="Hiệu suất so với tháng trước" />
+      {periodRows.length > 0 && !(module === "rankings" ? gscMetrics(rows, performancePeriod).complete : gaData.complete) && <p className="period-notice">Dữ liệu chưa phủ đủ kỳ đang xem. Các số hiện có được giữ nguyên; chưa tính % so sánh cho đến khi đủ cả hai kỳ.</p>}
+      {periodRows.some(row => !row.periodStart && row.gscSummary !== true) && <p className="period-notice">Dữ liệu cũ chỉ có ngày áp dụng, chưa xác định đủ kỳ. Nhập lại file và kiểm tra khoảng ngày để tính % so sánh chính xác.</p>}
+      {overlappingRows(rows, performancePeriod).length > periodRows.length && <p className="period-notice">Có báo cáo tổng hợp chồng lấn kỳ đang xem. Hãy nhập báo cáo đúng khoảng ngày; hệ thống không chia ước lượng số liệu theo ngày.</p>}
+      {undoImport && rows === undoImport.after && <p className="period-notice">Đã lưu lần nhập gần nhất. <button className="secondary" onClick={() => { setRows(undoImport.before); setUndoImport(null); setGscStatus("Đã hoàn tác lần nhập gần nhất."); onChange("Hoàn tác import", meta.title); }}>Hoàn tác lần nhập</button></p>}
+    </>}
+    <div className="toolbar"><div className="toolbar-left"><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Tìm kiếm dữ liệu…" />{statuses.length > 0 && <select value={status} onChange={event => setStatus(event.target.value)}><option>All</option>{statuses.map(item => <option key={item}>{item}</option>)}</select>}{module === "audits" && auditCategories.length > 0 && <select aria-label="Lọc theo nhóm lỗi" value={auditCategory} onChange={event => setAuditCategory(event.target.value)}><option value="All">Tất cả nhóm lỗi</option>{auditCategories.map(item => <option key={item}>{item}</option>)}</select>}{module === "worklogs" && workGroups.length > 0 && <select value={workGroup} onChange={event => setWorkGroup(event.target.value)}><option value="All">Tất cả nhóm công việc</option>{workGroups.map(item => <option key={item}>{item}</option>)}</select>}{module === "analytics" && <select aria-label="Phân loại dữ liệu GA4" value={analyticsCategory} onChange={event => setAnalyticsCategory(event.target.value)}><option value="All">Tất cả dữ liệu GA4 ({periodRows.length})</option><option value="channels">Kênh traffic ({gaChannelRows.length})</option><option value="pages">Trang xem nhiều ({gaPageRows.length})</option><option value="overview">Tổng quan website ({gaOverview ? 1 : 0})</option></select>}{module === "rankings" && <><select value={rankBand} onChange={event => setRankBand(event.target.value)}><option value="All">Tất cả thứ hạng</option><option value="top3">Top 3</option><option value="top10">Top 10</option><option value="top20">Top 20</option><option value="21-50">Top 21–50</option><option value="51-100">Top 51–100</option><option value="100+">Ngoài Top 100</option><option value="unknown">Chưa có thứ hạng</option></select><select value={rankSort} onChange={event => setRankSort(event.target.value)}><option value="position">Sắp xếp: Vị trí</option><option value="keyword">Sắp xếp: Keyword</option><option value="clicks">Sắp xếp: Clicks</option><option value="impressions">Sắp xếp: Impressions</option><option value="ctr">Sắp xếp: CTR</option></select><button className="secondary sort-direction" onClick={() => setRankDirection(current => current === "asc" ? "desc" : "asc")}>{rankDirection === "asc" ? "Tăng dần ↑" : "Giảm dần ↓"}</button></>}<span className="result-count">{filtered.length} bản ghi</span></div><div className="button-row">{(module === "rankings" || module === "analytics") && <div className="import-period"><label>Từ ngày<input aria-label="Nhập dữ liệu từ ngày" type="date" value={importFrom} onChange={event => setImportFrom(event.target.value)} /></label><label>Đến ngày<input aria-label="Nhập dữ liệu đến ngày" type="date" value={importTo} onChange={event => { setImportTo(event.target.value); setImportDate(event.target.value); }} /></label></div>}<input ref={fileRef} hidden type="file" accept={module === "rankings" ? ".zip,.csv,.tsv,application/zip,application/x-zip-compressed,multipart/x-zip,text/csv,text/tab-separated-values" : ".csv,.tsv,text/csv,text/tab-separated-values"} onChange={importCsv} /><button className="secondary" disabled={syncing || Boolean(pendingImport)} onClick={() => fileRef.current?.click()}>{module === "rankings" ? "Nhập ZIP / CSV GSC" : module === "analytics" ? "Nhập CSV GA4" : "Nhập CSV"}</button><button className="secondary" onClick={exportCsv}>Xuất CSV</button></div></div>
     {module === "rankings" && <p className="import-help">Có thể nhập thẳng file <b>.zip</b> tải từ Search Console (tiếng Việt hoặc tiếng Anh). Hệ thống tự nhận diện file từ khóa (<b>Queries.csv</b> / <b>Cụm từ tìm kiếm.csv</b>) và ngày hiệu suất (<b>Dates.csv</b> / <b>Ngày.csv</b> / <b>Sơ đồ.csv</b>), tự động tính CTR và cập nhật thứ hạng.</p>}
     {module === "analytics" && <p className="import-help">Hỗ trợ nhập trực tiếp file báo cáo <b>Tổng quan nhanh về báo cáo</b> xuất từ Google Analytics 4 (GA4). Hệ thống tự động bóc tách chỉ số tổng quan, phân loại các kênh traffic (Organic Search, Direct, Social...) và toàn bộ danh sách trang có lượt xem cao nhất.</p>}
     <div className="panel full">{module === "content" ? <ContentPlanTable rows={visibleRows} actions={rowActions} /> : <SimpleTable rows={visibleRows} columns={meta.columns} showIndex={module === "rankings" || (module === "analytics" && analyticsCategory === "pages")} indexOffset={isPaginated ? (rankPage - 1) * rankPageSize : 0} actions={rowActions} />}</div>
@@ -1226,6 +1209,7 @@ function ModuleView({ module, rows, setRows, onChange, onRecordSaved, onOpenSour
     {gallery && <GalleryModal title={gallery.title} images={gallery.images} initialIndex={gallery.index} onClose={() => setGallery(null)} />}
     {deleting && <ConfirmDialog eyebrow="XÁC NHẬN XÓA" title="Xóa bản ghi này?" description={`Bản ghi ${deleting.id} sẽ bị xóa khỏi ${meta.title}. Hành động này không thể hoàn tác.`} confirmLabel="Xóa bản ghi" danger onConfirm={confirmRemove} onClose={() => setDeleting(null)} />}
     {clearing && <ConfirmDialog eyebrow="XÓA TOÀN BỘ DỮ LIỆU" title={`Xóa sạch ${meta.title}?`} description={`Toàn bộ ${rows.length} bản ghi hiện có sẽ bị xóa để bạn nhập lại file mới. Hành động này không thể hoàn tác.`} confirmLabel="Xóa sạch dữ liệu" danger onConfirm={confirmClearAll} onClose={() => setClearing(false)} />}
+    {pendingImport && <div className="modal-backdrop"><section className="modal import-preview" role="dialog" aria-modal="true" aria-labelledby="import-preview-title"><div className="modal-head"><h2 id="import-preview-title">Kiểm tra trước khi nhập</h2><button aria-label="Đóng xem trước" onClick={() => setPendingImport(null)}>×</button></div><p><b>{pendingImport.source}</b></p><p>Kỳ dữ liệu: <b>{periodLabel(pendingImport.period)}</b></p><dl><div><dt>Dòng trong file mới</dt><dd>{pendingImport.incoming.length}</dd></div><div><dt>Dòng cũ được thay thế</dt><dd>{pendingImport.replaced.length}</dd></div><div><dt>Dòng cũ được giữ lại</dt><dd>{pendingImport.preserved.length}</dd></div></dl><p>Khoảng ngày trong file được ưu tiên khi nhận diện được. Kiểm tra đúng website và bộ lọc nguồn trước khi nhập.</p><div className="modal-actions"><button className="secondary" onClick={onBackup}>Tải backup toàn bộ workspace</button><button className="secondary" onClick={() => setPendingImport(null)}>Hủy</button><button className="primary" onClick={confirmImport}>Nhập dữ liệu kỳ này</button></div></section></div>}
   </>;
 }
 

@@ -1,5 +1,28 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap');
 
+/* Monthly performance controls: one shared period and one baseline for every figure. */
+.month-picker{display:flex;align-items:center;gap:24px;flex-wrap:wrap;padding:16px 20px;margin-bottom:16px;background:#fff;border:1px solid #e2e7ee;border-radius:9px}
+.month-picker label,.import-period label{display:flex;flex-direction:column;gap:6px;color:#4b5769;font-size:12px;font-weight:500}
+.month-picker input,.import-period input{max-width:100%;min-width:0;height:36px;padding:6px 10px;border:1px solid #cbd2dc;border-radius:6px;background:#fff;color:#263451;font:inherit}
+.month-picker p{display:flex;flex-direction:column;gap:5px;margin:0;font-size:12px;line-height:1.6;color:#536075}
+.month-picker strong{font-weight:600;color:#263451}
+.period-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));margin:0 0 20px;background:#fff;border:1px solid #e2e7ee;border-radius:9px;overflow:hidden}
+.period-metric{display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:18px;min-width:0;border-right:1px solid #edf0f4;font-variant-numeric:tabular-nums}
+.period-metric>span{font-size:12px;color:#536075;line-height:1.5}
+.period-metric>strong{font-size:25px;font-weight:600;line-height:1.2;color:#263451}
+.metric-delta{display:block;font-size:12px!important;line-height:1.6;font-weight:500;white-space:normal}
+.metric-delta.positive{color:#237447!important}.metric-delta.negative{color:#b8323b!important}.metric-delta.neutral{color:#606b7c!important}
+.metric-baseline{font-size:11px;color:#606b7c}
+.period-notice{margin:0 0 16px;padding:13px 16px;border:1px solid #dde3eb;border-radius:8px;background:#f8fafc;color:#4d5c70;font-size:12px;line-height:1.7}
+.period-notice button{margin-left:8px}.period-notice summary{cursor:pointer}.period-notice p{margin:8px 0 0}
+.import-period{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.import-period input{width:145px}.import-period label{font-size:11px}
+.import-preview p{font-size:13px;line-height:1.7;overflow-wrap:anywhere}.import-preview dl{padding:8px 16px;background:#f5f7fa;border-radius:8px}.import-preview dl>div{display:flex;justify-content:space-between;gap:16px;padding:10px 0;font-size:13px}.import-preview dd{margin:0;font-weight:600;font-variant-numeric:tabular-nums}
+.comparison-section{margin-bottom:20px;min-width:0}.comparison-section h3{margin:0 0 8px;font-size:16px;font-weight:600;color:#263451}.comparison-period,.comparison-footnote{margin:0 0 14px;font-size:12px;line-height:1.7;color:#536075}.comparison-footnote{margin:12px 0 0}
+.comparison-table-wrap{max-width:100%;overflow-x:auto;border:1px solid #e2e7ee;border-radius:8px}.comparison-table{width:100%;min-width:650px;border-collapse:collapse;font-size:12px;font-variant-numeric:tabular-nums;background:#fff}.comparison-table th,.comparison-table td{padding:12px 14px;line-height:1.6;text-align:right;border-bottom:1px solid #edf0f4;vertical-align:middle}.comparison-table th:first-child{text-align:left;min-width:190px}.comparison-table thead th{font-weight:500;color:#536075}.comparison-table tbody th{font-weight:500;color:#263451}.comparison-table tbody tr:last-child>*{border-bottom:0}.comparison-table input{width:90px;max-width:100%;min-height:34px;border:1px solid #cbd2dc;border-radius:5px;padding:6px 8px;font:inherit;text-align:right}.comparison-table .metric-delta{min-width:140px}.kpi-live-panel{margin-bottom:24px}.kpi-live-panel .comparison-section{margin-bottom:0}
+.month-picker input:focus-visible,.import-period input:focus-visible,.comparison-table input:focus-visible{outline:2px solid #4169e1;outline-offset:2px}
+@media(max-width:800px){.month-picker{gap:12px;padding:14px}.month-picker input{min-height:44px}.period-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.period-metric{padding:14px;gap:7px}.period-metric>strong{font-size:23px}.period-metric>span,.metric-delta{font-size:12px}.import-period{width:100%;display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.import-period input{width:100%;min-height:44px}.comparison-table th,.comparison-table td{padding:10px 12px}.comparison-table th:first-child{position:sticky;left:0;background:#fff;z-index:1}.period-notice button{margin:8px 0 0}}
+@media print{.comparison-table-wrap{overflow:visible}.comparison-table{min-width:0;font-size:9px}.comparison-table th,.comparison-table td{padding:6px}.comparison-table th:first-child{min-width:0;position:static}.comparison-table .metric-delta{min-width:0;font-size:9px!important}.comparison-section{break-inside:auto}.comparison-table tr{break-inside:avoid}.period-metrics{grid-template-columns:repeat(3,minmax(0,1fr))}.period-metric{padding:10px}.period-metric>strong{font-size:18px}.comparison-period,.comparison-footnote{font-size:10px}}
+
 :root{--navy:#121b37;--ink:#172039;--muted:#748198;--line:#e5eaf3;--bg:#f6f8fc;--blue:#4169e1;--purple:#8473e6;--orange:#f29a43;--red:#df6464;--green:#39ad7f}
 *{box-sizing:border-box}html{font-size:16px}body{margin:0;background:var(--bg);color:var(--ink);font-family:"Be Vietnam Pro",sans-serif;font-size:14px}button,input,select,textarea{font:inherit}.loading{min-height:100vh;display:grid;place-items:center;color:var(--muted)}
 .loading-card{display:flex;flex-direction:column;align-items:center;gap:7px}.loading-mark{width:48px;height:48px;border-radius:13px;background:linear-gradient(135deg,#829bf4,#536de3);color:#fff;display:grid;place-items:center;font-weight:800;margin-bottom:5px}.loading-card b{font-size:13px;color:#43506a}.loading-card small{font-size:10px;color:#929daf}.auth-notice b,.auth-notice span{display:block}.auth-notice span{margin-top:5px}.local-mode-button{width:100%;border:1px dashed #aab8e6;background:#f7f9ff;color:#4f67bc;border-radius:7px;padding:10px;font-size:10px;cursor:pointer;margin-top:13px}
@@ -634,3 +657,12 @@ th{padding:12px 14px}td{padding:13px 14px}.table-wrap table{min-width:720px}.sor
   .donut-wrap{justify-content:center}
 }
 .settings{text-align:left}@media(max-width:800px){.metric-grid{grid-template-columns:1fr 1fr;gap:10px}.metric-card{flex-direction:column;align-items:flex-start;gap:10px}.hero-ring{padding:14px}}
+
+/* Keep comparison labels readable inside the existing global table styles. */
+.comparison-table th{text-transform:none;letter-spacing:normal;font-size:12px}.comparison-table td{font-size:12px;color:#263451}.comparison-table thead th{color:#536075}.comparison-table tbody th{color:#263451}.comparison-table .metric-delta{font-size:12px!important}
+@media print{.comparison-table th,.comparison-table td,.comparison-table .metric-delta{font-size:9px!important}}
+
+/* On phones keep the current result and change visible beside each KPI. */
+@media screen and (max-width:640px){
+.comparison-table{display:block;min-width:0}.comparison-table thead{display:none}.comparison-table tbody{display:block}.comparison-table tbody tr{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:6px 12px;padding:14px;border-bottom:1px solid #edf0f4}.comparison-table tbody tr:last-child{border-bottom:0}.comparison-table th,.comparison-table td{display:block;padding:0;border:0!important;min-width:0;overflow-wrap:anywhere}.comparison-table th:first-child{position:static;min-width:0;grid-column:1;grid-row:1;background:transparent}.comparison-table td:nth-child(2){grid-column:1;grid-row:2;text-align:left;font-size:11px;color:#536075}.comparison-table td:nth-child(2)::before{content:"Kỳ trước: "}.comparison-table td:nth-child(3){grid-column:2;grid-row:1;font-size:18px;font-weight:600}.comparison-table td:nth-child(4){grid-column:2;grid-row:2}.comparison-table .metric-delta{min-width:0;font-size:12px!important}.comparison-table td:nth-child(5){grid-column:1;grid-row:3;text-align:left}.comparison-table td:nth-child(5)::before{content:"Mục tiêu: ";font-size:11px;color:#536075}.comparison-table td:nth-child(6){grid-column:2;grid-row:3}.comparison-table td:nth-child(6)::before{content:"Đạt: ";font-size:11px;color:#536075}.comparison-table input{width:75px}.import-period{padding-inline:2px}
+}
